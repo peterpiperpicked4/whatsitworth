@@ -1,0 +1,956 @@
+/**
+ * Real API Integrations for Website Analysis
+ * All APIs used here are FREE (no API key required)
+ */
+
+// CORS Proxies for APIs that don't support CORS
+const CORS_PROXIES = [
+  'https://corsproxy.io/?',
+  'https://api.allorigins.win/raw?url=',
+  'https://cors-anywhere.herokuapp.com/',
+];
+
+// Try multiple proxies
+async function fetchWithCorsProxy(url: string): Promise<Response> {
+  for (const proxy of CORS_PROXIES) {
+    try {
+      const response = await fetch(proxy + encodeURIComponent(url));
+      if (response.ok) {
+        return response;
+      }
+    } catch (e) {
+      console.warn(`Proxy ${proxy} failed for ${url}`);
+    }
+  }
+  throw new Error('All CORS proxies failed');
+}
+
+const CORS_PROXY = CORS_PROXIES[0];
+
+// ============================================
+// GOOGLE PAGESPEED INSIGHTS API (FREE)
+// ============================================
+export interface PageSpeedResult {
+  performanceScore: number;
+  firstContentfulPaint: number; // ms
+  largestContentfulPaint: number; // ms
+  totalBlockingTime: number; // ms
+  cumulativeLayoutShift: number;
+  speedIndex: number; // ms
+  timeToInteractive: number; // ms
+  serverResponseTime: number; // ms
+  totalPageSize: number; // bytes
+  totalRequests: number;
+  isAccessible: boolean;
+  accessibilityScore: number;
+  seoScore: number;
+  bestPracticesScore: number;
+}
+
+export async function getPageSpeedInsights(url: string): Promise<PageSpeedResult | null> {
+  const maxRetries = 3;
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      // Use desktop strategy for faster results, add key if available
+      const apiUrl = `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${encodeURIComponent(url)}&strategy=desktop&category=performance&category=accessibility&category=seo&category=best-practices`;
+
+      console.log(`PageSpeed API attempt ${attempt}/${maxRetries} for ${url}`);
+
+      const response = await fetch(apiUrl);
+
+      if (response.status === 429) {
+        // Rate limited - wait and retry
+        const waitTime = attempt * 2000;
+        console.warn(`PageSpeed API rate limited, waiting ${waitTime}ms before retry...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+        continue;
+      }
+
+      if (!response.ok) {
+        console.warn('PageSpeed API failed:', response.status);
+        return null;
+      }
+
+      const data = await response.json();
+
+      const lighthouse = data.lighthouseResult;
+      const audits = lighthouse?.audits || {};
+      const categories = lighthouse?.categories || {};
+
+      console.log(`PageSpeed API success for ${url}: perf=${Math.round((categories.performance?.score || 0) * 100)}`);
+
+      return {
+        performanceScore: Math.round((categories.performance?.score || 0) * 100),
+        firstContentfulPaint: audits['first-contentful-paint']?.numericValue || 0,
+        largestContentfulPaint: audits['largest-contentful-paint']?.numericValue || 0,
+        totalBlockingTime: audits['total-blocking-time']?.numericValue || 0,
+        cumulativeLayoutShift: audits['cumulative-layout-shift']?.numericValue || 0,
+        speedIndex: audits['speed-index']?.numericValue || 0,
+        timeToInteractive: audits['interactive']?.numericValue || 0,
+        serverResponseTime: audits['server-response-time']?.numericValue || 0,
+        totalPageSize: audits['total-byte-weight']?.numericValue || 0,
+        totalRequests: audits['network-requests']?.details?.items?.length || 0,
+        isAccessible: (categories.accessibility?.score || 0) > 0.8,
+        accessibilityScore: Math.round((categories.accessibility?.score || 0) * 100),
+        seoScore: Math.round((categories.seo?.score || 0) * 100),
+        bestPracticesScore: Math.round((categories['best-practices']?.score || 0) * 100),
+      };
+    } catch (error) {
+      lastError = error as Error;
+      console.warn(`PageSpeed API attempt ${attempt} failed:`, error);
+      if (attempt < maxRetries) {
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+      }
+    }
+  }
+
+  console.error('PageSpeed API failed after all retries:', lastError);
+  return null;
+}
+
+// ============================================
+// ARCHIVE.ORG WAYBACK MACHINE API (FREE)
+// ============================================
+export interface WaybackResult {
+  firstSnapshot: Date | null;
+  totalSnapshots: number;
+  estimatedAgeYears: number;
+  hasHistory: boolean;
+}
+
+export async function getWaybackHistory(domain: string): Promise<WaybackResult> {
+  try {
+    // Get the earliest snapshot - use CORS proxy
+    const cdxUrl = `https://web.archive.org/cdx/search/cdx?url=${domain}&output=json&limit=1&fl=timestamp&from=19900101`;
+
+    let response: Response;
+    try {
+      response = await fetchWithCorsProxy(cdxUrl);
+    } catch (e) {
+      console.warn('Wayback API fetch failed:', e);
+      return { firstSnapshot: null, totalSnapshots: 0, estimatedAgeYears: 0, hasHistory: false };
+    }
+
+    const text = await response.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      console.warn('Wayback API returned non-JSON:', text.slice(0, 100));
+      return { firstSnapshot: null, totalSnapshots: 0, estimatedAgeYears: 0, hasHistory: false };
+    }
+
+    if (!Array.isArray(data) || data.length <= 1) {
+      return { firstSnapshot: null, totalSnapshots: 0, estimatedAgeYears: 0, hasHistory: false };
+    }
+
+    // Parse timestamp (format: YYYYMMDDHHmmss)
+    const timestamp = data[1][0];
+    const year = parseInt(timestamp.substring(0, 4));
+    const month = parseInt(timestamp.substring(4, 6)) - 1;
+    const day = parseInt(timestamp.substring(6, 8));
+    const firstSnapshot = new Date(year, month, day);
+
+    // Calculate age
+    const now = new Date();
+    const ageMs = now.getTime() - firstSnapshot.getTime();
+    const ageYears = ageMs / (1000 * 60 * 60 * 24 * 365.25);
+
+    // Get total snapshot count - use CORS proxy
+    const countUrl = `https://web.archive.org/cdx/search/cdx?url=${domain}&output=json&fl=timestamp&collapse=timestamp:6&limit=1000`;
+    let totalSnapshots = 0;
+
+    try {
+      const countResponse = await fetchWithCorsProxy(countUrl);
+      const countText = await countResponse.text();
+      const countData = JSON.parse(countText);
+      if (Array.isArray(countData)) {
+        totalSnapshots = Math.max(0, countData.length - 1);
+      }
+    } catch {
+      // Use a conservative estimate based on age
+      totalSnapshots = Math.round(ageYears * 50); // Assume ~50 snapshots per year
+    }
+
+    console.log(`Wayback: ${domain} first indexed ${year}, age: ${ageYears.toFixed(1)} years, snapshots: ${totalSnapshots}`);
+
+    return {
+      firstSnapshot,
+      totalSnapshots,
+      estimatedAgeYears: Math.round(ageYears * 10) / 10,
+      hasHistory: true,
+    };
+  } catch (error) {
+    console.error('Wayback API error:', error);
+    return { firstSnapshot: null, totalSnapshots: 0, estimatedAgeYears: 0, hasHistory: false };
+  }
+}
+
+// ============================================
+// DNS ANALYSIS (FREE - via DNS-over-HTTPS)
+// ============================================
+export interface DnsResult {
+  hasMxRecords: boolean;
+  mxRecordCount: number;
+  hasSpfRecord: boolean;
+  hasDmarcRecord: boolean;
+  nameservers: string[];
+  isUsingCloudflare: boolean;
+  isUsingAwsRoute53: boolean;
+  isUsingGoogleCloud: boolean;
+  hasProperEmailSetup: boolean;
+}
+
+export async function analyzeDns(domain: string): Promise<DnsResult> {
+  const result: DnsResult = {
+    hasMxRecords: false,
+    mxRecordCount: 0,
+    hasSpfRecord: false,
+    hasDmarcRecord: false,
+    nameservers: [],
+    isUsingCloudflare: false,
+    isUsingAwsRoute53: false,
+    isUsingGoogleCloud: false,
+    hasProperEmailSetup: false,
+  };
+
+  try {
+    // Check MX records using Google DNS-over-HTTPS
+    const mxResponse = await fetch(`https://dns.google/resolve?name=${domain}&type=MX`);
+    const mxData = await mxResponse.json();
+    if (mxData.Answer) {
+      result.hasMxRecords = true;
+      result.mxRecordCount = mxData.Answer.length;
+    }
+
+    // Check TXT records for SPF
+    const txtResponse = await fetch(`https://dns.google/resolve?name=${domain}&type=TXT`);
+    const txtData = await txtResponse.json();
+    if (txtData.Answer) {
+      for (const record of txtData.Answer) {
+        if (record.data?.includes('v=spf1')) {
+          result.hasSpfRecord = true;
+        }
+      }
+    }
+
+    // Check DMARC
+    const dmarcResponse = await fetch(`https://dns.google/resolve?name=_dmarc.${domain}&type=TXT`);
+    const dmarcData = await dmarcResponse.json();
+    if (dmarcData.Answer) {
+      result.hasDmarcRecord = true;
+    }
+
+    // Check nameservers
+    const nsResponse = await fetch(`https://dns.google/resolve?name=${domain}&type=NS`);
+    const nsData = await nsResponse.json();
+    if (nsData.Answer) {
+      result.nameservers = nsData.Answer.map((a: { data: string }) => a.data);
+
+      const nsString = result.nameservers.join(' ').toLowerCase();
+      result.isUsingCloudflare = nsString.includes('cloudflare');
+      result.isUsingAwsRoute53 = nsString.includes('awsdns');
+      result.isUsingGoogleCloud = nsString.includes('googledomains') || nsString.includes('google.com');
+    }
+
+    result.hasProperEmailSetup = result.hasMxRecords && result.hasSpfRecord;
+
+  } catch (error) {
+    console.error('DNS analysis error:', error);
+  }
+
+  return result;
+}
+
+// ============================================
+// TECHNOLOGY DETECTION (from HTML analysis)
+// ============================================
+export interface TechnologyStack {
+  cms: string | null;
+  framework: string | null;
+  analytics: string[];
+  cdns: string[];
+  hosting: string | null;
+  ecommerce: string | null;
+  marketing: string[];
+  isWordPress: boolean;
+  isShopify: boolean;
+  isWix: boolean;
+  isSquarespace: boolean;
+  hasGoogleAnalytics: boolean;
+  hasGoogleTagManager: boolean;
+  hasFacebookPixel: boolean;
+  isModernStack: boolean;
+}
+
+export function detectTechnologies(html: string, headers?: Record<string, string>): TechnologyStack {
+  const lowerHtml = html.toLowerCase();
+
+  const result: TechnologyStack = {
+    cms: null,
+    framework: null,
+    analytics: [],
+    cdns: [],
+    hosting: null,
+    ecommerce: null,
+    marketing: [],
+    isWordPress: false,
+    isShopify: false,
+    isWix: false,
+    isSquarespace: false,
+    hasGoogleAnalytics: false,
+    hasGoogleTagManager: false,
+    hasFacebookPixel: false,
+    isModernStack: false,
+  };
+
+  // CMS Detection
+  if (lowerHtml.includes('wp-content') || lowerHtml.includes('wordpress')) {
+    result.cms = 'WordPress';
+    result.isWordPress = true;
+  } else if (lowerHtml.includes('shopify') || lowerHtml.includes('cdn.shopify.com')) {
+    result.cms = 'Shopify';
+    result.isShopify = true;
+    result.ecommerce = 'Shopify';
+  } else if (lowerHtml.includes('wix.com') || lowerHtml.includes('wixsite')) {
+    result.cms = 'Wix';
+    result.isWix = true;
+  } else if (lowerHtml.includes('squarespace')) {
+    result.cms = 'Squarespace';
+    result.isSquarespace = true;
+  } else if (lowerHtml.includes('webflow')) {
+    result.cms = 'Webflow';
+  } else if (lowerHtml.includes('ghost')) {
+    result.cms = 'Ghost';
+  } else if (lowerHtml.includes('drupal')) {
+    result.cms = 'Drupal';
+  }
+
+  // Framework Detection
+  if (lowerHtml.includes('__next') || lowerHtml.includes('_next/static')) {
+    result.framework = 'Next.js';
+    result.isModernStack = true;
+  } else if (lowerHtml.includes('__nuxt') || lowerHtml.includes('/_nuxt/')) {
+    result.framework = 'Nuxt.js';
+    result.isModernStack = true;
+  } else if (lowerHtml.includes('ng-') || lowerHtml.includes('angular')) {
+    result.framework = 'Angular';
+    result.isModernStack = true;
+  } else if (lowerHtml.includes('data-reactroot') || lowerHtml.includes('react')) {
+    result.framework = 'React';
+    result.isModernStack = true;
+  } else if (lowerHtml.includes('data-v-') || lowerHtml.includes('vue')) {
+    result.framework = 'Vue.js';
+    result.isModernStack = true;
+  }
+
+  // Analytics Detection
+  if (lowerHtml.includes('google-analytics.com') || lowerHtml.includes('gtag') || lowerHtml.includes('ga.js') || lowerHtml.includes('analytics.js')) {
+    result.analytics.push('Google Analytics');
+    result.hasGoogleAnalytics = true;
+  }
+  if (lowerHtml.includes('googletagmanager.com') || lowerHtml.includes('gtm.js')) {
+    result.analytics.push('Google Tag Manager');
+    result.hasGoogleTagManager = true;
+  }
+  if (lowerHtml.includes('facebook.com/tr') || lowerHtml.includes('fbq(') || lowerHtml.includes('facebook pixel')) {
+    result.analytics.push('Facebook Pixel');
+    result.hasFacebookPixel = true;
+  }
+  if (lowerHtml.includes('hotjar')) {
+    result.analytics.push('Hotjar');
+  }
+  if (lowerHtml.includes('mixpanel')) {
+    result.analytics.push('Mixpanel');
+  }
+  if (lowerHtml.includes('segment.com') || lowerHtml.includes('segment.io')) {
+    result.analytics.push('Segment');
+  }
+  if (lowerHtml.includes('amplitude')) {
+    result.analytics.push('Amplitude');
+  }
+
+  // CDN Detection
+  if (lowerHtml.includes('cloudflare')) {
+    result.cdns.push('Cloudflare');
+  }
+  if (lowerHtml.includes('cloudfront.net')) {
+    result.cdns.push('AWS CloudFront');
+  }
+  if (lowerHtml.includes('fastly')) {
+    result.cdns.push('Fastly');
+  }
+  if (lowerHtml.includes('akamai')) {
+    result.cdns.push('Akamai');
+  }
+
+  // E-commerce Detection
+  if (!result.ecommerce) {
+    if (lowerHtml.includes('woocommerce')) {
+      result.ecommerce = 'WooCommerce';
+    } else if (lowerHtml.includes('magento')) {
+      result.ecommerce = 'Magento';
+    } else if (lowerHtml.includes('bigcommerce')) {
+      result.ecommerce = 'BigCommerce';
+    } else if (lowerHtml.includes('add to cart') || lowerHtml.includes('add-to-cart') || lowerHtml.includes('shopping cart')) {
+      result.ecommerce = 'Custom';
+    }
+  }
+
+  // Marketing Tools
+  if (lowerHtml.includes('mailchimp')) {
+    result.marketing.push('Mailchimp');
+  }
+  if (lowerHtml.includes('hubspot')) {
+    result.marketing.push('HubSpot');
+  }
+  if (lowerHtml.includes('intercom')) {
+    result.marketing.push('Intercom');
+  }
+  if (lowerHtml.includes('drift')) {
+    result.marketing.push('Drift');
+  }
+  if (lowerHtml.includes('crisp')) {
+    result.marketing.push('Crisp');
+  }
+  if (lowerHtml.includes('zendesk')) {
+    result.marketing.push('Zendesk');
+  }
+
+  return result;
+}
+
+// ============================================
+// ROBOTS.TXT & SITEMAP ANALYSIS (FREE)
+// ============================================
+export interface CrawlabilityResult {
+  hasRobotsTxt: boolean;
+  robotsTxtContent: string | null;
+  allowsAllCrawlers: boolean;
+  blocksAI: boolean;
+  hasSitemap: boolean;
+  sitemapUrls: string[];
+  estimatedPageCount: number;
+}
+
+export async function analyzeCrawlability(domain: string): Promise<CrawlabilityResult> {
+  const result: CrawlabilityResult = {
+    hasRobotsTxt: false,
+    robotsTxtContent: null,
+    allowsAllCrawlers: true,
+    blocksAI: false,
+    hasSitemap: false,
+    sitemapUrls: [],
+    estimatedPageCount: 0,
+  };
+
+  const corsProxy = 'https://api.allorigins.win/raw?url=';
+
+  try {
+    // Check robots.txt
+    const robotsUrl = `https://${domain}/robots.txt`;
+    const robotsResponse = await fetch(corsProxy + encodeURIComponent(robotsUrl));
+
+    if (robotsResponse.ok) {
+      const robotsTxt = await robotsResponse.text();
+      if (robotsTxt && !robotsTxt.includes('<!DOCTYPE') && robotsTxt.length < 50000) {
+        result.hasRobotsTxt = true;
+        result.robotsTxtContent = robotsTxt;
+
+        const lowerRobots = robotsTxt.toLowerCase();
+        result.allowsAllCrawlers = !lowerRobots.includes('disallow: /');
+        result.blocksAI = lowerRobots.includes('gptbot') ||
+                         lowerRobots.includes('chatgpt') ||
+                         lowerRobots.includes('anthropic') ||
+                         lowerRobots.includes('claude');
+
+        // Extract sitemap URLs
+        const sitemapMatches = robotsTxt.match(/sitemap:\s*(\S+)/gi);
+        if (sitemapMatches) {
+          result.sitemapUrls = sitemapMatches.map(m => m.replace(/sitemap:\s*/i, '').trim());
+          result.hasSitemap = true;
+        }
+      }
+    }
+
+    // If no sitemap found in robots.txt, check common locations
+    if (!result.hasSitemap) {
+      const commonSitemaps = [
+        `https://${domain}/sitemap.xml`,
+        `https://${domain}/sitemap_index.xml`,
+      ];
+
+      for (const sitemapUrl of commonSitemaps) {
+        try {
+          const sitemapResponse = await fetch(corsProxy + encodeURIComponent(sitemapUrl));
+          if (sitemapResponse.ok) {
+            const content = await sitemapResponse.text();
+            if (content.includes('<urlset') || content.includes('<sitemapindex')) {
+              result.hasSitemap = true;
+              result.sitemapUrls.push(sitemapUrl);
+
+              // Estimate page count from sitemap
+              const locMatches = content.match(/<loc>/g);
+              if (locMatches) {
+                result.estimatedPageCount = locMatches.length;
+              }
+              break;
+            }
+          }
+        } catch {
+          // Continue to next sitemap URL
+        }
+      }
+    }
+
+  } catch (error) {
+    console.error('Crawlability analysis error:', error);
+  }
+
+  return result;
+}
+
+// ============================================
+// SSL/HTTPS ANALYSIS (from headers)
+// ============================================
+export interface SecurityResult {
+  hasHttps: boolean;
+  hasHsts: boolean;
+  hasContentSecurityPolicy: boolean;
+  hasXFrameOptions: boolean;
+  hasXContentTypeOptions: boolean;
+  securityScore: number;
+  securityGrade: 'A+' | 'A' | 'B' | 'C' | 'D' | 'F';
+}
+
+export function analyzeSecurityHeaders(url: string, html: string): SecurityResult {
+  const hasHttps = url.startsWith('https://');
+
+  // We can't access response headers from client-side, but we can infer some things
+  const lowerHtml = html.toLowerCase();
+
+  // Check for CSP meta tag
+  const hasContentSecurityPolicy = lowerHtml.includes('content-security-policy');
+
+  // Check for frame-ancestors or X-Frame-Options
+  const hasXFrameOptions = lowerHtml.includes('x-frame-options') ||
+                           lowerHtml.includes('frame-ancestors');
+
+  // Calculate security score
+  let score = 0;
+  if (hasHttps) score += 40;
+  if (hasContentSecurityPolicy) score += 20;
+  if (hasXFrameOptions) score += 15;
+
+  // Additional checks from HTML
+  const hasSecureForms = !html.includes('action="http://');
+  if (hasSecureForms) score += 10;
+
+  const noMixedContent = !lowerHtml.includes('src="http://');
+  if (noMixedContent) score += 15;
+
+  // Determine grade
+  let grade: SecurityResult['securityGrade'] = 'F';
+  if (score >= 90) grade = 'A+';
+  else if (score >= 80) grade = 'A';
+  else if (score >= 65) grade = 'B';
+  else if (score >= 50) grade = 'C';
+  else if (score >= 35) grade = 'D';
+
+  return {
+    hasHttps,
+    hasHsts: false, // Can't determine from client-side
+    hasContentSecurityPolicy,
+    hasXFrameOptions,
+    hasXContentTypeOptions: false, // Can't determine from client-side
+    securityScore: score,
+    securityGrade: grade,
+  };
+}
+
+// ============================================
+// TRANCO DOMAIN RANKING (FREE)
+// Top 1M most popular domains list
+// ============================================
+export interface TrancoRankResult {
+  isRanked: boolean;
+  rank: number | null;
+  percentile: number | null; // 0-100, lower is better
+  trafficTier: 'top-100' | 'top-1k' | 'top-10k' | 'top-100k' | 'top-1m' | 'unranked';
+}
+
+export async function getTrancoRank(domain: string): Promise<TrancoRankResult> {
+  try {
+    // Tranco API - returns rank for domain
+    const apiUrl = `https://tranco-list.eu/api/ranks/domain/${encodeURIComponent(domain)}`;
+
+    console.log(`Tranco API: Checking rank for ${domain}`);
+
+    const response = await fetchWithCorsProxy(apiUrl);
+    const data = await response.json();
+
+    // Tranco returns { ranks: [{ date: "...", rank: 123 }] } or empty if not ranked
+    if (data.ranks && data.ranks.length > 0) {
+      const rank = data.ranks[0].rank;
+
+      // Calculate percentile (0 = top, 100 = bottom of list)
+      const percentile = (rank / 1000000) * 100;
+
+      // Determine traffic tier
+      let trafficTier: TrancoRankResult['trafficTier'] = 'unranked';
+      if (rank <= 100) trafficTier = 'top-100';
+      else if (rank <= 1000) trafficTier = 'top-1k';
+      else if (rank <= 10000) trafficTier = 'top-10k';
+      else if (rank <= 100000) trafficTier = 'top-100k';
+      else trafficTier = 'top-1m';
+
+      console.log(`Tranco: ${domain} ranked #${rank} (${trafficTier})`);
+
+      return {
+        isRanked: true,
+        rank,
+        percentile,
+        trafficTier,
+      };
+    }
+
+    console.log(`Tranco: ${domain} not in top 1M`);
+    return {
+      isRanked: false,
+      rank: null,
+      percentile: null,
+      trafficTier: 'unranked',
+    };
+  } catch (error) {
+    console.warn('Tranco API failed:', error);
+    return {
+      isRanked: false,
+      rank: null,
+      percentile: null,
+      trafficTier: 'unranked',
+    };
+  }
+}
+
+// ============================================
+// SOCIAL MEDIA FOLLOWER SCRAPING (FREE)
+// Scrapes public follower counts from social pages
+// ============================================
+export interface SocialFollowers {
+  twitter: number | null;
+  twitterHandle: string | null;
+  linkedin: number | null;
+  facebook: number | null;
+  instagram: number | null;
+  youtube: number | null;
+  totalFollowers: number;
+  platformsWithData: number;
+}
+
+async function scrapeTwitterFollowers(handle: string): Promise<number | null> {
+  try {
+    // Use Nitter (Twitter frontend) which is easier to scrape
+    const nitterUrl = `https://nitter.net/${handle}`;
+    const response = await fetchWithCorsProxy(nitterUrl);
+    const html = await response.text();
+
+    // Look for follower count in various formats
+    // Nitter shows: "123.4K Followers" or "1,234,567 Followers"
+    const followerMatch = html.match(/(\d[\d,\.]*[KMB]?)\s*Followers/i);
+    if (followerMatch) {
+      return parseFollowerCount(followerMatch[1]);
+    }
+
+    return null;
+  } catch (error) {
+    console.warn(`Twitter scrape failed for @${handle}:`, error);
+    return null;
+  }
+}
+
+async function scrapeLinkedInFollowers(companyUrl: string): Promise<number | null> {
+  try {
+    // LinkedIn is heavily protected, try to get basic info
+    const response = await fetchWithCorsProxy(companyUrl);
+    const html = await response.text();
+
+    // Look for follower patterns
+    const followerMatch = html.match(/(\d[\d,\.]*[KMB]?)\s*followers/i);
+    if (followerMatch) {
+      return parseFollowerCount(followerMatch[1]);
+    }
+
+    return null;
+  } catch (error) {
+    console.warn('LinkedIn scrape failed:', error);
+    return null;
+  }
+}
+
+async function scrapeFacebookFollowers(pageUrl: string): Promise<number | null> {
+  try {
+    const response = await fetchWithCorsProxy(pageUrl);
+    const html = await response.text();
+
+    // Look for "X people like this" or "X followers"
+    const likesMatch = html.match(/(\d[\d,\.]*[KMB]?)\s*people\s*like/i) ||
+                       html.match(/(\d[\d,\.]*[KMB]?)\s*followers/i);
+    if (likesMatch) {
+      return parseFollowerCount(likesMatch[1]);
+    }
+
+    return null;
+  } catch (error) {
+    console.warn('Facebook scrape failed:', error);
+    return null;
+  }
+}
+
+function parseFollowerCount(str: string): number {
+  // Remove commas and spaces
+  let clean = str.replace(/[,\s]/g, '');
+
+  // Handle K, M, B suffixes
+  const multipliers: Record<string, number> = { 'K': 1000, 'M': 1000000, 'B': 1000000000 };
+  const suffix = clean.slice(-1).toUpperCase();
+
+  if (multipliers[suffix]) {
+    return Math.round(parseFloat(clean.slice(0, -1)) * multipliers[suffix]);
+  }
+
+  return parseInt(clean, 10) || 0;
+}
+
+export async function scrapeSocialFollowers(html: string, domain: string): Promise<SocialFollowers> {
+  const result: SocialFollowers = {
+    twitter: null,
+    twitterHandle: null,
+    linkedin: null,
+    facebook: null,
+    instagram: null,
+    youtube: null,
+    totalFollowers: 0,
+    platformsWithData: 0,
+  };
+
+  // Extract social links from HTML
+  const twitterMatch = html.match(/(?:twitter\.com|x\.com)\/([a-zA-Z0-9_]+)/i);
+  const linkedinMatch = html.match(/linkedin\.com\/company\/([a-zA-Z0-9-]+)/i);
+  const facebookMatch = html.match(/facebook\.com\/([a-zA-Z0-9.]+)/i);
+
+  const scrapePromises: Promise<void>[] = [];
+
+  // Scrape Twitter
+  if (twitterMatch && twitterMatch[1] !== 'share' && twitterMatch[1] !== 'intent') {
+    result.twitterHandle = twitterMatch[1];
+    scrapePromises.push(
+      scrapeTwitterFollowers(twitterMatch[1]).then(count => {
+        result.twitter = count;
+        if (count) {
+          result.totalFollowers += count;
+          result.platformsWithData++;
+        }
+      })
+    );
+  }
+
+  // Scrape LinkedIn
+  if (linkedinMatch) {
+    const linkedinUrl = `https://www.linkedin.com/company/${linkedinMatch[1]}`;
+    scrapePromises.push(
+      scrapeLinkedInFollowers(linkedinUrl).then(count => {
+        result.linkedin = count;
+        if (count) {
+          result.totalFollowers += count;
+          result.platformsWithData++;
+        }
+      })
+    );
+  }
+
+  // Scrape Facebook
+  if (facebookMatch && facebookMatch[1] !== 'sharer') {
+    const facebookUrl = `https://www.facebook.com/${facebookMatch[1]}`;
+    scrapePromises.push(
+      scrapeFacebookFollowers(facebookUrl).then(count => {
+        result.facebook = count;
+        if (count) {
+          result.totalFollowers += count;
+          result.platformsWithData++;
+        }
+      })
+    );
+  }
+
+  // Run all scrapes in parallel with timeout
+  await Promise.race([
+    Promise.allSettled(scrapePromises),
+    new Promise(resolve => setTimeout(resolve, 10000)), // 10s timeout
+  ]);
+
+  console.log(`Social followers for ${domain}:`, result);
+  return result;
+}
+
+// ============================================
+// SSL LABS API (FREE)
+// Detailed SSL/TLS security analysis
+// ============================================
+export interface SSLLabsResult {
+  grade: string | null; // A+, A, A-, B, C, D, E, F, T, M
+  gradeTrustIgnored: string | null;
+  hasWarnings: boolean;
+  isExceptional: boolean;
+  certExpiresIn: number | null; // days
+  protocol: string | null; // TLS 1.3, TLS 1.2, etc.
+  keyStrength: number | null; // bits
+  supportsHsts: boolean;
+  vulnerabilities: string[];
+  analysisComplete: boolean;
+}
+
+export async function getSSLLabsGrade(domain: string): Promise<SSLLabsResult> {
+  const defaultResult: SSLLabsResult = {
+    grade: null,
+    gradeTrustIgnored: null,
+    hasWarnings: false,
+    isExceptional: false,
+    certExpiresIn: null,
+    protocol: null,
+    keyStrength: null,
+    supportsHsts: false,
+    vulnerabilities: [],
+    analysisComplete: false,
+  };
+
+  try {
+    // SSL Labs API - start analysis or get cached results
+    // Using fromCache=on to get quick cached results if available
+    const apiUrl = `https://api.ssllabs.com/api/v3/analyze?host=${encodeURIComponent(domain)}&fromCache=on&maxAge=24`;
+
+    console.log(`SSL Labs: Checking ${domain}`);
+
+    const response = await fetch(apiUrl); // SSL Labs supports CORS
+
+    if (!response.ok) {
+      console.warn(`SSL Labs API returned ${response.status}`);
+      return defaultResult;
+    }
+
+    const data = await response.json();
+
+    // Check status - might still be analyzing
+    if (data.status === 'ERROR') {
+      console.warn('SSL Labs error:', data.statusMessage);
+      return defaultResult;
+    }
+
+    if (data.status === 'DNS' || data.status === 'IN_PROGRESS') {
+      console.log('SSL Labs: Analysis in progress, using basic check');
+      return defaultResult;
+    }
+
+    if (data.status === 'READY' && data.endpoints && data.endpoints.length > 0) {
+      const endpoint = data.endpoints[0];
+
+      const result: SSLLabsResult = {
+        grade: endpoint.grade || null,
+        gradeTrustIgnored: endpoint.gradeTrustIgnored || null,
+        hasWarnings: endpoint.hasWarnings || false,
+        isExceptional: endpoint.isExceptional || false,
+        certExpiresIn: null,
+        protocol: null,
+        keyStrength: null,
+        supportsHsts: false,
+        vulnerabilities: [],
+        analysisComplete: true,
+      };
+
+      // Check for vulnerabilities
+      if (endpoint.details) {
+        const details = endpoint.details;
+
+        if (details.vulnBeast) result.vulnerabilities.push('BEAST');
+        if (details.poodle) result.vulnerabilities.push('POODLE');
+        if (details.heartbleed) result.vulnerabilities.push('Heartbleed');
+        if (details.freak) result.vulnerabilities.push('FREAK');
+        if (details.logjam) result.vulnerabilities.push('Logjam');
+        if (details.drownVulnerable) result.vulnerabilities.push('DROWN');
+
+        result.supportsHsts = details.hstsPolicy?.status === 'present';
+        result.keyStrength = details.key?.strength || null;
+
+        // Get best protocol
+        if (details.protocols) {
+          const protocols = details.protocols.map((p: { name: string; version: string }) =>
+            `${p.name} ${p.version}`
+          );
+          if (protocols.includes('TLS 1.3')) result.protocol = 'TLS 1.3';
+          else if (protocols.includes('TLS 1.2')) result.protocol = 'TLS 1.2';
+          else result.protocol = protocols[0];
+        }
+
+        // Certificate expiry
+        if (details.cert?.notAfter) {
+          const expiryDate = new Date(details.cert.notAfter);
+          const now = new Date();
+          result.certExpiresIn = Math.floor((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        }
+      }
+
+      console.log(`SSL Labs: ${domain} grade=${result.grade}, protocol=${result.protocol}`);
+      return result;
+    }
+
+    return defaultResult;
+  } catch (error) {
+    console.warn('SSL Labs API failed:', error);
+    return defaultResult;
+  }
+}
+
+// ============================================
+// OPEN PAGERANK API (FREE)
+// Alternative to Moz/Ahrefs domain authority
+// ============================================
+export interface OpenPageRankResult {
+  pageRankDecimal: number | null; // 0-10 scale
+  rank: number | null;
+  statusCode: number;
+}
+
+export async function getOpenPageRank(domain: string): Promise<OpenPageRankResult> {
+  try {
+    // Open PageRank - free API with limits
+    // Note: Requires API key for production, but has generous free tier
+    const apiUrl = `https://openpagerank.com/api/v1.0/getPageRank?domains[]=${encodeURIComponent(domain)}`;
+
+    console.log(`OpenPageRank: Checking ${domain}`);
+
+    // This API requires an API key header, but we can try without
+    const response = await fetch(apiUrl);
+
+    if (!response.ok) {
+      return { pageRankDecimal: null, rank: null, statusCode: response.status };
+    }
+
+    const data = await response.json();
+
+    if (data.response && data.response[0]) {
+      const result = data.response[0];
+      console.log(`OpenPageRank: ${domain} rank=${result.page_rank_decimal}`);
+      return {
+        pageRankDecimal: result.page_rank_decimal || null,
+        rank: result.rank || null,
+        statusCode: 200,
+      };
+    }
+
+    return { pageRankDecimal: null, rank: null, statusCode: 200 };
+  } catch (error) {
+    console.warn('OpenPageRank API failed:', error);
+    return { pageRankDecimal: null, rank: null, statusCode: 500 };
+  }
+}
