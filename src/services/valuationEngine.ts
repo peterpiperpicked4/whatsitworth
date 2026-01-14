@@ -425,7 +425,7 @@ function analyzeSocialComprehensive(html: string): SocialAnalysis {
 // MONETIZATION ANALYSIS
 // ============================================
 
-function analyzeMonetization(html: string, technology: TechnologyAnalysis): MonetizationAnalysis {
+function analyzeMonetization(html: string, technology: { ecommerce: string | null }): MonetizationAnalysis {
   const lowerHtml = html.toLowerCase();
 
   // Ad network detection
@@ -1250,11 +1250,18 @@ export async function analyzeWebsite(inputUrl: string): Promise<WebsiteAnalysis>
   // Synchronous analyses
   const technicalAnalysis = analyzeTechnicalComprehensive(url, html, loadTime);
   const technologyAnalysis = detectTechnologies(html);
-  const securityAnalysis = analyzeSecurityHeaders(url, html);
+  const securityResult = analyzeSecurityHeaders(url, html);
   const seoAnalysis = analyzeSeoComprehensive(html, crawlability);
   const contentAnalysis = analyzeContentComprehensive(html);
   const socialAnalysis = analyzeSocialComprehensive(html);
   const monetizationAnalysis = analyzeMonetization(html, technologyAnalysis);
+
+  // Build complete security analysis
+  const securityAnalysis: SecurityAnalysis = {
+    ...securityResult,
+    hasSecureForms: !html.includes('action="http://'),
+    noMixedContent: !html.toLowerCase().includes('src="http://'),
+  };
 
   // Build performance analysis from PageSpeed
   let performanceAnalysis: PerformanceAnalysis | null = null;
@@ -1281,7 +1288,10 @@ export async function analyzeWebsite(inputUrl: string): Promise<WebsiteAnalysis>
   // Build technology analysis with score
   const technology: TechnologyAnalysis = {
     ...technologyAnalysis,
+    cdn: technologyAnalysis.cdns[0] || null,
     techStackScore: calculateTechStackScore(technologyAnalysis),
+    hasGoogleAnalytics: technologyAnalysis.analytics.some(a => a.toLowerCase().includes('google')),
+    hasGoogleTagManager: technologyAnalysis.analytics.some(a => a.toLowerCase().includes('tag manager')),
   };
 
   // Detect industry
@@ -1384,7 +1394,13 @@ function calculateInfrastructureScore(dns: Omit<DnsAnalysis, 'infrastructureScor
   return score;
 }
 
-function calculateTechStackScore(tech: Omit<TechnologyAnalysis, 'techStackScore'>): number {
+function calculateTechStackScore(tech: {
+  isModernStack: boolean;
+  analytics: string[];
+  marketing: string[];
+  cdns: string[];
+  cms: string | null;
+}): number {
   let score = 40; // Base score
   if (tech.isModernStack) score += 20;
   if (tech.analytics.length > 0) score += 15;
