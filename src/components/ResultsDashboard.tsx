@@ -193,6 +193,207 @@ export function ResultsDashboard({ analysis, onReset }: ResultsDashboardProps) {
         </div>
       </div>
 
+      {/* AI SEO Readiness - New Feature */}
+      {analysis.aiSeo && (
+        <div className="glass-card p-6 fade-in fade-in-delay-1 border border-violet-500/30">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500/30 to-purple-600/30 flex items-center justify-center">
+              <svg className="w-5 h-5 text-violet-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+              </svg>
+            </div>
+            <div className="flex-1">
+              <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                AI SEO Readiness
+                <span className="text-xs px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-400 font-normal">NEW</span>
+              </h3>
+              <p className="text-xs text-gray-400">How well this site is optimized for AI assistants & search</p>
+            </div>
+            <div className="text-right">
+              <p className="text-3xl font-bold bg-gradient-to-r from-violet-400 to-purple-400 bg-clip-text text-transparent">
+                {analysis.aiSeo.overallAiSeoScore}
+              </p>
+              <p className="text-xs text-gray-400">AI SEO Score</p>
+            </div>
+            <div className={`px-3 py-1.5 rounded-lg font-bold text-sm ${
+              analysis.aiSeo.futureReadinessGrade === 'A+' ? 'bg-emerald-500/20 text-emerald-400' :
+              analysis.aiSeo.futureReadinessGrade === 'A' ? 'bg-green-500/20 text-green-400' :
+              analysis.aiSeo.futureReadinessGrade === 'B' ? 'bg-yellow-500/20 text-yellow-400' :
+              analysis.aiSeo.futureReadinessGrade === 'C' ? 'bg-orange-500/20 text-orange-400' :
+              'bg-red-500/20 text-red-400'
+            }`}>
+              {analysis.aiSeo.futureReadinessGrade}
+            </div>
+          </div>
+
+          {/* AI Crawlability Status */}
+          <div className="mb-4 p-4 rounded-xl bg-white/5">
+            <h4 className="text-sm font-medium text-white mb-3 flex items-center gap-2">
+              <svg className="w-4 h-4 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+              </svg>
+              AI Bot Access
+            </h4>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+              {[
+                { name: 'GPT', allowed: analysis.aiSeo.aiCrawlability.allowsGptBot },
+                { name: 'Claude', allowed: analysis.aiSeo.aiCrawlability.allowsClaudeBot },
+                { name: 'Perplexity', allowed: analysis.aiSeo.aiCrawlability.allowsPerplexityBot },
+                { name: 'Google AI', allowed: analysis.aiSeo.aiCrawlability.allowsGoogleAI },
+                { name: 'CommonCrawl', allowed: analysis.aiSeo.aiCrawlability.allowsCcBot },
+              ].map((bot, i) => (
+                <div key={i} className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs ${
+                  bot.allowed ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'
+                }`}>
+                  {bot.allowed ? (
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                  ) : (
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  )}
+                  {bot.name}
+                </div>
+              ))}
+            </div>
+            {analysis.aiSeo.aiCrawlability.blocksAllAi && (
+              <p className="mt-2 text-xs text-red-400 flex items-center gap-1">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                This site blocks all AI crawlers - significantly reducing AI visibility
+              </p>
+            )}
+          </div>
+
+          {/* AI-Optimized Content Metrics */}
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
+            {[
+              { label: 'Crawlability', value: analysis.aiSeo.aiCrawlability.crawlabilityScore, color: 'violet' },
+              { label: 'Structure', value: analysis.aiSeo.contentStructure.structureScore, color: 'purple' },
+              { label: 'Answer Quality', value: analysis.aiSeo.answerQuality.answerDensityScore, color: 'fuchsia' },
+              { label: 'Citation Ready', value: analysis.aiSeo.citationPotential.citationScore, color: 'pink' },
+              { label: 'AI Patterns', value: analysis.aiSeo.aiContentPatterns.contentPatternsScore, color: 'rose' },
+            ].map((metric, i) => (
+              <div key={i} className="text-center p-3 rounded-xl bg-white/5">
+                <div className="relative w-12 h-12 mx-auto mb-2">
+                  <svg className="w-12 h-12 transform -rotate-90">
+                    <circle cx="24" cy="24" r="20" fill="none" stroke="currentColor" strokeWidth="4" className="text-white/10" />
+                    <circle
+                      cx="24"
+                      cy="24"
+                      r="20"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                      strokeDasharray={`${(metric.value / 100) * 125.6} 125.6`}
+                      className={`text-${metric.color}-400`}
+                      style={{ color: metric.color === 'violet' ? '#8b5cf6' : metric.color === 'purple' ? '#a855f7' : metric.color === 'fuchsia' ? '#d946ef' : metric.color === 'pink' ? '#ec4899' : '#f43f5e' }}
+                    />
+                  </svg>
+                  <span className="absolute inset-0 flex items-center justify-center text-xs font-bold text-white">
+                    {metric.value}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-400">{metric.label}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Schema Types Detected */}
+          {analysis.aiSeo.contentStructure.schemaTypes.length > 0 && (
+            <div className="mb-4">
+              <p className="text-xs text-gray-400 mb-2">Schema Types Detected</p>
+              <div className="flex flex-wrap gap-2">
+                {analysis.aiSeo.contentStructure.schemaTypes.map((schema, i) => (
+                  <span key={i} className="text-xs px-2 py-1 rounded-full bg-purple-500/20 text-purple-400">
+                    {schema}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Content Features */}
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-4">
+            {[
+              { label: 'Direct Answers', has: analysis.aiSeo.answerQuality.hasDirectAnswers },
+              { label: 'Numbered Steps', has: analysis.aiSeo.aiContentPatterns.hasNumberedSteps },
+              { label: 'Bullet Lists', has: analysis.aiSeo.aiContentPatterns.hasBulletedLists },
+              { label: 'Comparisons', has: analysis.aiSeo.aiContentPatterns.hasComparisons },
+              { label: 'Pros & Cons', has: analysis.aiSeo.aiContentPatterns.hasProsAndCons },
+            ].map((feature, i) => (
+              <div key={i} className={`flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-xs ${
+                feature.has ? 'bg-emerald-500/10 text-emerald-400' : 'bg-white/5 text-gray-500'
+              }`}>
+                {feature.has ? (
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                ) : (
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
+                  </svg>
+                )}
+                {feature.label}
+              </div>
+            ))}
+          </div>
+
+          {/* AI SEO Recommendations */}
+          {analysis.aiSeo.aiSeoRecommendations.length > 0 && (
+            <div className="p-4 rounded-xl bg-gradient-to-r from-violet-500/10 to-purple-500/10 border border-violet-500/20">
+              <h4 className="text-sm font-medium text-violet-400 mb-2 flex items-center gap-2">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                </svg>
+                AI SEO Recommendations
+              </h4>
+              <ul className="space-y-1">
+                {analysis.aiSeo.aiSeoRecommendations.slice(0, 4).map((rec, i) => (
+                  <li key={i} className="text-xs text-gray-300 flex items-start gap-2">
+                    <span className="text-violet-400 mt-0.5">•</span>
+                    {rec}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Comparison with Traditional SEO */}
+          <div className="mt-4 flex items-center justify-between p-3 rounded-xl bg-white/5">
+            <div>
+              <p className="text-xs text-gray-400">Traditional SEO Score</p>
+              <p className="text-lg font-bold text-white">{analysis.scores.seo}</p>
+            </div>
+            <div className="text-center px-4">
+              <p className="text-xs text-gray-400">vs</p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-gray-400">AI SEO Score</p>
+              <p className="text-lg font-bold bg-gradient-to-r from-violet-400 to-purple-400 bg-clip-text text-transparent">
+                {analysis.aiSeo.overallAiSeoScore}
+              </p>
+            </div>
+            <div className={`ml-4 px-3 py-1 rounded-lg text-xs font-medium ${
+              analysis.aiSeo.overallAiSeoScore > analysis.scores.seo
+                ? 'bg-emerald-500/20 text-emerald-400'
+                : analysis.aiSeo.overallAiSeoScore < analysis.scores.seo
+                ? 'bg-orange-500/20 text-orange-400'
+                : 'bg-gray-500/20 text-gray-400'
+            }`}>
+              {analysis.aiSeo.overallAiSeoScore > analysis.scores.seo
+                ? `+${analysis.aiSeo.overallAiSeoScore - analysis.scores.seo} AI Ready`
+                : analysis.aiSeo.overallAiSeoScore < analysis.scores.seo
+                ? `${analysis.aiSeo.overallAiSeoScore - analysis.scores.seo} Gap`
+                : 'Balanced'}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Score Chart + Domain Card */}
       <div className="grid md:grid-cols-2 gap-6">
         <MetricsChart scores={analysis.scores} />

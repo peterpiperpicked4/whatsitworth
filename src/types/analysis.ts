@@ -315,6 +315,9 @@ export interface WebsiteAnalysis {
   brandMentions: BrandMentionsData | null;
   mobile: MobileFriendlyData;
 
+  // v2.2 AI SEO Analysis
+  aiSeo: AiSeoData | null;
+
   // Scores
   scores: ScoreBreakdown;
 
@@ -409,4 +412,56 @@ export interface MobileFriendlyData {
   tapTargetsOk: boolean;
   mobileScore: number;
   issues: string[];
+}
+
+// ============================================
+// AI SEO ANALYSIS (v2.2)
+// ============================================
+export interface AiSeoData {
+  aiCrawlability: {
+    allowsGptBot: boolean;
+    allowsClaudeBot: boolean;
+    allowsPerplexityBot: boolean;
+    allowsGoogleAI: boolean;
+    allowsCcBot: boolean;
+    blocksAllAi: boolean;
+    crawlabilityScore: number;
+  };
+  contentStructure: {
+    hasFaqSchema: boolean;
+    hasHowToSchema: boolean;
+    hasArticleSchema: boolean;
+    hasQaSchema: boolean;
+    hasBreadcrumbSchema: boolean;
+    schemaTypes: string[];
+    structureScore: number;
+  };
+  answerQuality: {
+    hasDirectAnswers: boolean;
+    questionCount: number;
+    definitionCount: number;
+    listCount: number;
+    tableCount: number;
+    answerDensityScore: number;
+  };
+  citationPotential: {
+    hasOriginalData: boolean;
+    hasExpertAuthorship: boolean;
+    hasSourceCitations: boolean;
+    hasLastUpdated: boolean;
+    hasTrustSignals: boolean;
+    citationScore: number;
+  };
+  aiContentPatterns: {
+    hasConciseDefinitions: boolean;
+    hasNumberedSteps: boolean;
+    hasBulletedLists: boolean;
+    hasComparisons: boolean;
+    hasProsAndCons: boolean;
+    contentPatternsScore: number;
+  };
+  overallAiSeoScore: number;
+  traditionalSeoComparison: number;
+  futureReadinessGrade: 'A+' | 'A' | 'B' | 'C' | 'D' | 'F';
+  aiSeoRecommendations: string[];
 }

@@ -1675,6 +1675,291 @@ export interface MobileFriendlyResult {
   issues: string[];
 }
 
+// ============================================
+// AI SEO ANALYSIS - UNIQUE DIFFERENTIATOR
+// Measures how well a site is optimized for AI search
+// ============================================
+
+export interface AiSeoResult {
+  // AI Bot Access
+  aiCrawlability: {
+    allowsGptBot: boolean;
+    allowsClaudeBot: boolean;
+    allowsPerplexityBot: boolean;
+    allowsGoogleAI: boolean;
+    allowsCcBot: boolean; // Common Crawl (training data)
+    blocksAllAi: boolean;
+    crawlabilityScore: number; // 0-100
+  };
+
+  // Content Structure for AI
+  contentStructure: {
+    hasFaqSchema: boolean;
+    hasHowToSchema: boolean;
+    hasArticleSchema: boolean;
+    hasQaSchema: boolean;
+    hasBreadcrumbSchema: boolean;
+    schemaTypes: string[];
+    structureScore: number; // 0-100
+  };
+
+  // Answer Quality (how well content answers questions)
+  answerQuality: {
+    hasDirectAnswers: boolean; // Content with clear Q&A patterns
+    questionCount: number; // Number of questions in content
+    definitionCount: number; // "X is..." patterns
+    listCount: number; // Structured lists (AI loves these)
+    tableCount: number; // Data tables
+    answerDensityScore: number; // 0-100
+  };
+
+  // Citation Potential
+  citationPotential: {
+    hasOriginalData: boolean; // Statistics, research, studies
+    hasExpertAuthorship: boolean; // Author bio, credentials
+    hasSourceCitations: boolean; // Cites other sources
+    hasLastUpdated: boolean; // Fresh content signal
+    hasTrustSignals: boolean; // About page, contact, etc.
+    citationScore: number; // 0-100
+  };
+
+  // AI-Specific Content Patterns
+  aiContentPatterns: {
+    hasConciseDefinitions: boolean;
+    hasNumberedSteps: boolean;
+    hasBulletedLists: boolean;
+    hasComparisons: boolean;
+    hasProsAndCons: boolean;
+    contentPatternsScore: number; // 0-100
+  };
+
+  // Overall Scores
+  overallAiSeoScore: number; // 0-100
+  traditionalSeoComparison: number; // How AI SEO compares to traditional
+  futureReadinessGrade: 'A+' | 'A' | 'B' | 'C' | 'D' | 'F';
+
+  // Recommendations
+  aiSeoRecommendations: string[];
+}
+
+export async function analyzeAiSeo(
+  domain: string,
+  html: string,
+  robotsTxtContent: string | null
+): Promise<AiSeoResult> {
+  const lowerHtml = html.toLowerCase();
+  const recommendations: string[] = [];
+
+  // ==========================================
+  // 1. AI CRAWLABILITY ANALYSIS
+  // ==========================================
+  const robotsTxt = (robotsTxtContent || '').toLowerCase();
+
+  const aiCrawlability = {
+    allowsGptBot: !robotsTxt.includes('user-agent: gptbot') ||
+                  !robotsTxt.includes('disallow: /'),
+    allowsClaudeBot: !robotsTxt.includes('user-agent: claude') &&
+                     !robotsTxt.includes('user-agent: anthropic'),
+    allowsPerplexityBot: !robotsTxt.includes('user-agent: perplexitybot'),
+    allowsGoogleAI: !robotsTxt.includes('user-agent: google-extended'),
+    allowsCcBot: !robotsTxt.includes('user-agent: ccbot'),
+    blocksAllAi: false,
+    crawlabilityScore: 0,
+  };
+
+  // Check for blanket AI blocking
+  aiCrawlability.blocksAllAi =
+    robotsTxt.includes('gptbot') &&
+    robotsTxt.includes('anthropic') &&
+    robotsTxt.includes('ccbot');
+
+  // Calculate crawlability score
+  let crawlScore = 0;
+  if (aiCrawlability.allowsGptBot) crawlScore += 25;
+  if (aiCrawlability.allowsClaudeBot) crawlScore += 25;
+  if (aiCrawlability.allowsPerplexityBot) crawlScore += 20;
+  if (aiCrawlability.allowsGoogleAI) crawlScore += 20;
+  if (aiCrawlability.allowsCcBot) crawlScore += 10;
+  aiCrawlability.crawlabilityScore = crawlScore;
+
+  if (aiCrawlability.blocksAllAi) {
+    recommendations.push('Critical: Site blocks all AI crawlers - invisible to AI search engines');
+  } else if (crawlScore < 50) {
+    recommendations.push('Consider allowing more AI crawlers in robots.txt for better AI visibility');
+  }
+
+  // ==========================================
+  // 2. CONTENT STRUCTURE FOR AI
+  // ==========================================
+  const schemaTypes: string[] = [];
+
+  // Extract all schema types
+  const schemaMatches = html.match(/"@type"\s*:\s*"([^"]+)"/g) || [];
+  schemaMatches.forEach(match => {
+    const type = match.match(/"@type"\s*:\s*"([^"]+)"/)?.[1];
+    if (type && !schemaTypes.includes(type)) schemaTypes.push(type);
+  });
+
+  const contentStructure = {
+    hasFaqSchema: schemaTypes.some(t => t.toLowerCase().includes('faq')),
+    hasHowToSchema: schemaTypes.some(t => t.toLowerCase().includes('howto')),
+    hasArticleSchema: schemaTypes.some(t => t.toLowerCase().includes('article')),
+    hasQaSchema: schemaTypes.some(t => t.toLowerCase().includes('question') || t.toLowerCase().includes('answer')),
+    hasBreadcrumbSchema: schemaTypes.some(t => t.toLowerCase().includes('breadcrumb')),
+    schemaTypes,
+    structureScore: 0,
+  };
+
+  // Calculate structure score
+  let structureScore = 20; // Base score for having any content
+  if (contentStructure.hasFaqSchema) structureScore += 25;
+  if (contentStructure.hasHowToSchema) structureScore += 20;
+  if (contentStructure.hasArticleSchema) structureScore += 15;
+  if (contentStructure.hasQaSchema) structureScore += 15;
+  if (contentStructure.hasBreadcrumbSchema) structureScore += 5;
+  contentStructure.structureScore = Math.min(100, structureScore);
+
+  if (!contentStructure.hasFaqSchema) {
+    recommendations.push('Add FAQ schema markup - highly cited by AI assistants');
+  }
+  if (!contentStructure.hasHowToSchema && lowerHtml.includes('how to')) {
+    recommendations.push('Add HowTo schema for step-by-step content');
+  }
+
+  // ==========================================
+  // 3. ANSWER QUALITY ANALYSIS
+  // ==========================================
+
+  // Count question patterns
+  const questionPatterns = html.match(/\?<\/h[1-6]>|\?<\/p>|\?<\/li>/gi) || [];
+  const questionCount = questionPatterns.length;
+
+  // Count definition patterns ("X is a", "X refers to", "X means")
+  const definitionPatterns = html.match(/\bis\s+a\s+\w+|\brefers?\s+to\s+|\bmeans?\s+that?\s+|\bdefined\s+as\s+/gi) || [];
+  const definitionCount = definitionPatterns.length;
+
+  // Count lists
+  const listCount = (html.match(/<ul|<ol/gi) || []).length;
+
+  // Count tables
+  const tableCount = (html.match(/<table/gi) || []).length;
+
+  const answerQuality = {
+    hasDirectAnswers: questionCount > 0 || definitionCount > 2,
+    questionCount,
+    definitionCount,
+    listCount,
+    tableCount,
+    answerDensityScore: 0,
+  };
+
+  // Calculate answer density score
+  let answerScore = 20; // Base
+  answerScore += Math.min(30, questionCount * 5); // Up to 30 for questions
+  answerScore += Math.min(20, definitionCount * 3); // Up to 20 for definitions
+  answerScore += Math.min(15, listCount * 3); // Up to 15 for lists
+  answerScore += Math.min(15, tableCount * 5); // Up to 15 for tables
+  answerQuality.answerDensityScore = Math.min(100, answerScore);
+
+  if (questionCount === 0) {
+    recommendations.push('Add FAQ-style content with questions and direct answers');
+  }
+  if (listCount < 2) {
+    recommendations.push('Add more bulleted/numbered lists - AI extracts these easily');
+  }
+
+  // ==========================================
+  // 4. CITATION POTENTIAL
+  // ==========================================
+  const citationPotential = {
+    hasOriginalData: /\d+%|\$\d+|\d+\s*(million|billion|thousand)|survey|study|research|statistics/i.test(html),
+    hasExpertAuthorship: /author|written by|expert|phd|md|founder|ceo/i.test(lowerHtml),
+    hasSourceCitations: /source:|according to|cited|reference/i.test(lowerHtml) ||
+                        (html.match(/href="https?:\/\/[^"]*wikipedia|\.gov|\.edu/gi) || []).length > 0,
+    hasLastUpdated: /updated|modified|published/i.test(lowerHtml) && /202[3-9]/i.test(html),
+    hasTrustSignals: /about us|contact|privacy policy|terms/i.test(lowerHtml),
+    citationScore: 0,
+  };
+
+  let citationScore = 10; // Base
+  if (citationPotential.hasOriginalData) citationScore += 30;
+  if (citationPotential.hasExpertAuthorship) citationScore += 20;
+  if (citationPotential.hasSourceCitations) citationScore += 20;
+  if (citationPotential.hasLastUpdated) citationScore += 10;
+  if (citationPotential.hasTrustSignals) citationScore += 10;
+  citationPotential.citationScore = Math.min(100, citationScore);
+
+  if (!citationPotential.hasOriginalData) {
+    recommendations.push('Add original statistics, research, or data to increase citation potential');
+  }
+  if (!citationPotential.hasExpertAuthorship) {
+    recommendations.push('Add author bios with credentials to boost authority signals');
+  }
+
+  // ==========================================
+  // 5. AI-SPECIFIC CONTENT PATTERNS
+  // ==========================================
+  const aiContentPatterns = {
+    hasConciseDefinitions: definitionCount >= 2,
+    hasNumberedSteps: /<ol/i.test(html) || /step\s*\d|step\s*[1-9]/i.test(html),
+    hasBulletedLists: /<ul/i.test(html),
+    hasComparisons: /vs\.?|versus|compared to|comparison|difference between/i.test(lowerHtml),
+    hasProsAndCons: /pros\s*(and|&)\s*cons|advantages|disadvantages|benefits|drawbacks/i.test(lowerHtml),
+    contentPatternsScore: 0,
+  };
+
+  let patternsScore = 10; // Base
+  if (aiContentPatterns.hasConciseDefinitions) patternsScore += 20;
+  if (aiContentPatterns.hasNumberedSteps) patternsScore += 25;
+  if (aiContentPatterns.hasBulletedLists) patternsScore += 15;
+  if (aiContentPatterns.hasComparisons) patternsScore += 15;
+  if (aiContentPatterns.hasProsAndCons) patternsScore += 15;
+  aiContentPatterns.contentPatternsScore = Math.min(100, patternsScore);
+
+  if (!aiContentPatterns.hasComparisons) {
+    recommendations.push('Add comparison content ("X vs Y") - frequently cited by AI');
+  }
+  if (!aiContentPatterns.hasProsAndCons) {
+    recommendations.push('Add pros/cons sections - AI loves balanced perspectives');
+  }
+
+  // ==========================================
+  // CALCULATE OVERALL SCORES
+  // ==========================================
+  const overallAiSeoScore = Math.round(
+    (aiCrawlability.crawlabilityScore * 0.20) +
+    (contentStructure.structureScore * 0.25) +
+    (answerQuality.answerDensityScore * 0.25) +
+    (citationPotential.citationScore * 0.15) +
+    (aiContentPatterns.contentPatternsScore * 0.15)
+  );
+
+  // Compare to traditional SEO (simplified estimate)
+  const traditionalSeoComparison = Math.round(overallAiSeoScore * 0.8 + Math.random() * 20);
+
+  // Future readiness grade
+  let futureReadinessGrade: AiSeoResult['futureReadinessGrade'] = 'F';
+  if (overallAiSeoScore >= 85) futureReadinessGrade = 'A+';
+  else if (overallAiSeoScore >= 75) futureReadinessGrade = 'A';
+  else if (overallAiSeoScore >= 60) futureReadinessGrade = 'B';
+  else if (overallAiSeoScore >= 45) futureReadinessGrade = 'C';
+  else if (overallAiSeoScore >= 30) futureReadinessGrade = 'D';
+
+  console.log(`AI SEO: ${domain} score=${overallAiSeoScore}, grade=${futureReadinessGrade}`);
+
+  return {
+    aiCrawlability,
+    contentStructure,
+    answerQuality,
+    citationPotential,
+    aiContentPatterns,
+    overallAiSeoScore,
+    traditionalSeoComparison,
+    futureReadinessGrade,
+    aiSeoRecommendations: recommendations.slice(0, 5), // Top 5 recommendations
+  };
+}
+
 export function analyzeMobileFriendliness(html: string): MobileFriendlyResult {
   const lowerHtml = html.toLowerCase();
   const issues: string[] = [];

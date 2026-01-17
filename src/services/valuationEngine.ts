@@ -31,6 +31,7 @@ import type {
   DomainRanking,
   SocialFollowersData,
   SSLAnalysis,
+  AiSeoData,
 } from '../types/analysis';
 
 import {
@@ -50,6 +51,8 @@ import {
   getBacklinkEstimate,
   getBrandMentions,
   analyzeMobileFriendliness,
+  // v2.2 AI SEO
+  analyzeAiSeo,
   type TrancoRankResult,
   type RdapResult,
   type IndexedPagesResult,
@@ -57,6 +60,7 @@ import {
   type BacklinkResult,
   type BrandMentionsResult,
   type MobileFriendlyResult,
+  type AiSeoResult,
 } from './realApis';
 
 // ============================================
@@ -1302,6 +1306,14 @@ export async function analyzeWebsite(inputUrl: string): Promise<WebsiteAnalysis>
     dataSourcesUsed.push('Mobile-Friendly Analysis');
   }
 
+  // v2.2: AI SEO Analysis
+  let aiSeoAnalysis: AiSeoData | null = null;
+  if (html) {
+    const aiSeoResult = await analyzeAiSeo(domainName, html, crawlability.robotsTxtContent);
+    aiSeoAnalysis = aiSeoResult;
+    dataSourcesUsed.push('AI SEO Readiness Analysis');
+  }
+
   // Build complete security analysis
   const securityAnalysis: SecurityAnalysis = {
     ...securityResult,
@@ -1394,7 +1406,7 @@ export async function analyzeWebsite(inputUrl: string): Promise<WebsiteAnalysis>
   return {
     url,
     analyzedAt: new Date(),
-    analysisVersion: '2.1.0',
+    analysisVersion: '2.2.0',
     domain: domainAnalysis,
     performance: performanceAnalysis,
     technical: technicalAnalysis,
@@ -1425,6 +1437,8 @@ export async function analyzeWebsite(inputUrl: string): Promise<WebsiteAnalysis>
     backlinks: backlinks.hasBacklinkData ? backlinks : null,
     brandMentions: brandMentions.hasBrandPresence ? brandMentions : null,
     mobile: mobileAnalysis,
+    // v2.2 AI SEO
+    aiSeo: aiSeoAnalysis,
     scores,
     estimatedValue: valuation.value,
     valueRange: valuation.range,
