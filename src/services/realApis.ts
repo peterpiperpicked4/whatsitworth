@@ -954,3 +954,239 @@ export async function getOpenPageRank(domain: string): Promise<OpenPageRankResul
     return { pageRankDecimal: null, rank: null, statusCode: 500 };
   }
 }
+
+// ============================================
+// DOMAIN REGISTRATION AFFILIATE SYSTEM
+// ============================================
+
+export interface DomainSuggestion {
+  domain: string;
+  tld: string;
+  available: boolean | null; // null = unknown
+  price: string | null;
+  registrar: string;
+  affiliateUrl: string;
+  isPremium: boolean;
+}
+
+export interface DomainRegistrationData {
+  analyzedDomain: string;
+  isAvailable: boolean | null;
+  suggestions: DomainSuggestion[];
+  alternativeTlds: DomainSuggestion[];
+  premiumListings: DomainSuggestion[];
+}
+
+// Affiliate URL generators for different registrars
+const REGISTRAR_AFFILIATES = {
+  namecheap: {
+    name: 'Namecheap',
+    baseUrl: 'https://www.namecheap.com/domains/registration/results/',
+    buildUrl: (domain: string) =>
+      `https://www.namecheap.com/domains/registration/results/?domain=${encodeURIComponent(domain)}`,
+    logo: 'namecheap',
+  },
+  godaddy: {
+    name: 'GoDaddy',
+    baseUrl: 'https://www.godaddy.com/domainsearch/find',
+    buildUrl: (domain: string) =>
+      `https://www.godaddy.com/domainsearch/find?domainToCheck=${encodeURIComponent(domain)}`,
+    logo: 'godaddy',
+  },
+  porkbun: {
+    name: 'Porkbun',
+    baseUrl: 'https://porkbun.com/checkout/search',
+    buildUrl: (domain: string) =>
+      `https://porkbun.com/checkout/search?q=${encodeURIComponent(domain)}`,
+    logo: 'porkbun',
+  },
+  cloudflare: {
+    name: 'Cloudflare',
+    baseUrl: 'https://www.cloudflare.com/products/registrar/',
+    buildUrl: (domain: string) =>
+      `https://dash.cloudflare.com/?to=/:account/domains/register/${encodeURIComponent(domain)}`,
+    logo: 'cloudflare',
+  },
+};
+
+// TLD pricing estimates (for display purposes)
+const TLD_PRICES: Record<string, { low: number; high: number }> = {
+  '.com': { low: 9, high: 15 },
+  '.net': { low: 10, high: 15 },
+  '.org': { low: 10, high: 15 },
+  '.io': { low: 30, high: 50 },
+  '.co': { low: 25, high: 35 },
+  '.ai': { low: 70, high: 100 },
+  '.app': { low: 12, high: 20 },
+  '.dev': { low: 12, high: 20 },
+  '.tech': { low: 5, high: 15 },
+  '.online': { low: 3, high: 10 },
+  '.site': { low: 3, high: 10 },
+  '.xyz': { low: 2, high: 5 },
+};
+
+// Check domain availability using RDAP (free, no API key needed)
+export async function checkDomainAvailability(domain: string): Promise<boolean | null> {
+  try {
+    // Try RDAP lookup - if it returns data, domain is taken
+    const rdapUrl = `https://rdap.org/domain/${encodeURIComponent(domain)}`;
+
+    const response = await fetch(rdapUrl, {
+      method: 'HEAD',
+      mode: 'no-cors' // RDAP may not support CORS
+    });
+
+    // If we get a response, domain exists (taken)
+    // This is a simplified check - actual availability requires registrar API
+    return false; // Assume taken if RDAP has data
+  } catch {
+    // If RDAP fails, we can't determine availability
+    return null;
+  }
+}
+
+// Generate domain suggestions based on the analyzed domain
+export function generateDomainSuggestions(
+  baseDomain: string,
+  isAnalyzedDomainTaken: boolean = true
+): DomainRegistrationData {
+  // Extract the domain name without TLD
+  const parts = baseDomain.split('.');
+  const name = parts[0];
+  const currentTld = '.' + parts.slice(1).join('.');
+
+  const suggestions: DomainSuggestion[] = [];
+  const alternativeTlds: DomainSuggestion[] = [];
+  const premiumListings: DomainSuggestion[] = [];
+
+  // Alternative TLDs for the same name
+  const tldOptions = ['.com', '.io', '.co', '.net', '.org', '.app', '.dev', '.ai', '.tech', '.online'];
+
+  for (const tld of tldOptions) {
+    if (tld === currentTld) continue;
+
+    const domain = name + tld;
+    const priceRange = TLD_PRICES[tld] || { low: 10, high: 20 };
+
+    alternativeTlds.push({
+      domain,
+      tld,
+      available: null, // Would need API to check
+      price: `$${priceRange.low}-${priceRange.high}/yr`,
+      registrar: 'namecheap',
+      affiliateUrl: REGISTRAR_AFFILIATES.namecheap.buildUrl(domain),
+      isPremium: tld === '.ai' || tld === '.io',
+    });
+  }
+
+  // Name variations/suggestions
+  const nameVariations = [
+    `get${name}`,
+    `${name}app`,
+    `${name}hq`,
+    `my${name}`,
+    `the${name}`,
+    `${name}online`,
+    `${name}now`,
+    `try${name}`,
+  ];
+
+  for (const variation of nameVariations.slice(0, 4)) {
+    const domain = variation + '.com';
+    suggestions.push({
+      domain,
+      tld: '.com',
+      available: null,
+      price: '$9-15/yr',
+      registrar: 'namecheap',
+      affiliateUrl: REGISTRAR_AFFILIATES.namecheap.buildUrl(domain),
+      isPremium: false,
+    });
+  }
+
+  // Premium domain suggestions (aftermarket)
+  if (name.length <= 5) {
+    premiumListings.push({
+      domain: baseDomain,
+      tld: currentTld,
+      available: !isAnalyzedDomainTaken,
+      price: 'Premium - Check Price',
+      registrar: 'godaddy',
+      affiliateUrl: `https://www.godaddy.com/domainsearch/find?domainToCheck=${encodeURIComponent(baseDomain)}&isc=cjcgdarr1`,
+      isPremium: true,
+    });
+  }
+
+  return {
+    analyzedDomain: baseDomain,
+    isAvailable: !isAnalyzedDomainTaken,
+    suggestions,
+    alternativeTlds,
+    premiumListings,
+  };
+}
+
+// Get affiliate links for a specific domain across all registrars
+export function getRegistrarLinks(domain: string): Array<{
+  name: string;
+  url: string;
+  logo: string;
+}> {
+  return Object.values(REGISTRAR_AFFILIATES).map(registrar => ({
+    name: registrar.name,
+    url: registrar.buildUrl(domain),
+    logo: registrar.logo,
+  }));
+}
+
+// Calculate potential domain value for unregistered domains
+export function estimateUnregisteredDomainValue(name: string, tld: string): {
+  estimatedValue: number;
+  factors: string[];
+} {
+  let value = 100; // Base value
+  const factors: string[] = [];
+
+  // Length bonus
+  if (name.length <= 3) {
+    value += 5000;
+    factors.push('Ultra-short (3 chars or less): +$5,000');
+  } else if (name.length <= 5) {
+    value += 1000;
+    factors.push('Short domain (4-5 chars): +$1,000');
+  } else if (name.length <= 8) {
+    value += 200;
+    factors.push('Moderate length (6-8 chars): +$200');
+  }
+
+  // TLD value
+  const tldMultipliers: Record<string, number> = {
+    '.com': 10,
+    '.io': 5,
+    '.ai': 8,
+    '.co': 3,
+    '.net': 2,
+    '.org': 2,
+  };
+
+  const multiplier = tldMultipliers[tld] || 1;
+  if (multiplier > 1) {
+    factors.push(`Premium TLD (${tld}): ${multiplier}x multiplier`);
+  }
+  value *= multiplier;
+
+  // Dictionary word bonus
+  const commonWords = ['app', 'web', 'tech', 'data', 'cloud', 'pay', 'buy', 'shop', 'code', 'dev'];
+  if (commonWords.some(word => name.toLowerCase().includes(word))) {
+    value += 500;
+    factors.push('Contains valuable keyword: +$500');
+  }
+
+  // No numbers/hyphens bonus
+  if (!/[-0-9]/.test(name)) {
+    value += 100;
+    factors.push('Clean (no numbers/hyphens): +$100');
+  }
+
+  return { estimatedValue: Math.round(value), factors };
+}

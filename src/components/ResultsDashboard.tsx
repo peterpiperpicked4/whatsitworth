@@ -2,6 +2,7 @@ import type { WebsiteAnalysis } from '../types/analysis';
 import { ValueDisplay } from './ValueDisplay';
 import { MetricsChart } from './MetricsChart';
 import { FactorCard } from './FactorCard';
+import { DomainRegistration } from './DomainRegistration';
 
 interface ResultsDashboardProps {
   analysis: WebsiteAnalysis;
@@ -432,6 +433,12 @@ export function ResultsDashboard({ analysis, onReset }: ResultsDashboardProps) {
           </div>
         </div>
       )}
+
+      {/* Domain Registration Affiliate */}
+      <DomainRegistration
+        domain={analysis.domain.domain}
+        estimatedValue={analysis.estimatedValue}
+      />
 
       {/* Analysis Meta */}
       <div className="text-center text-gray-500 text-xs py-4">
