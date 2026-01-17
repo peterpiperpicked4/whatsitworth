@@ -3,7 +3,10 @@ import { UrlInput } from './components/UrlInput';
 import { AnalysisLoader } from './components/AnalysisLoader';
 import { ResultsDashboard } from './components/ResultsDashboard';
 import { AnalyticsDashboard } from './components/AnalyticsDashboard';
+import { HistoryPanel } from './components/HistoryPanel';
+import { ComparisonMode } from './components/ComparisonMode';
 import { analyzeWebsite } from './services/valuationEngine';
+import { saveToHistory } from './services/historyService';
 import type { WebsiteAnalysis, AnalysisStatus } from './types/analysis';
 
 function App() {
@@ -11,6 +14,8 @@ function App() {
   const [analysis, setAnalysis] = useState<WebsiteAnalysis | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showAnalytics, setShowAnalytics] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [showComparison, setShowComparison] = useState(false);
 
   const handleAnalyze = async (url: string) => {
     setStatus('analyzing');
@@ -25,6 +30,8 @@ function App() {
 
       setAnalysis(result);
       setStatus('complete');
+      // Save to history
+      saveToHistory(result);
     } catch (err) {
       console.error('Analysis failed:', err);
       setError(err instanceof Error ? err.message : 'Failed to analyze website');
@@ -36,6 +43,17 @@ function App() {
     setStatus('idle');
     setAnalysis(null);
     setError(null);
+  };
+
+  const handleLoadFromHistory = (loadedAnalysis: WebsiteAnalysis) => {
+    setAnalysis(loadedAnalysis);
+    setStatus('complete');
+    setError(null);
+  };
+
+  const handleSwitchToSingle = (url: string) => {
+    setShowComparison(false);
+    handleAnalyze(url);
   };
 
   return (
@@ -63,6 +81,19 @@ function App() {
             {status === 'idle' && (
               <div className="pt-8">
                 <UrlInput onAnalyze={handleAnalyze} isLoading={false} />
+
+                {/* Compare Sites Button */}
+                <div className="flex justify-center mt-6">
+                  <button
+                    onClick={() => setShowComparison(true)}
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-orange-500/50 text-gray-400 hover:text-orange-400 transition-all"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                    Compare Multiple Sites
+                  </button>
+                </div>
 
                 {/* Features section */}
                 <div className="mt-16 grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -154,6 +185,15 @@ function App() {
           <div className="max-w-6xl mx-auto flex items-center justify-center gap-4 text-gray-500 text-sm">
             <p>What's It Worth? - Instant website value estimation</p>
             <button
+              onClick={() => setShowHistory(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 hover:border-cyan-500/50 text-gray-400 hover:text-cyan-400 transition-all text-xs"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              History
+            </button>
+            <button
               onClick={() => setShowAnalytics(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 hover:border-violet-500/50 text-gray-400 hover:text-violet-400 transition-all text-xs"
             >
@@ -165,9 +205,25 @@ function App() {
           </div>
         </footer>
 
+        {/* History Panel Modal */}
+        {showHistory && (
+          <HistoryPanel
+            onClose={() => setShowHistory(false)}
+            onLoadAnalysis={handleLoadFromHistory}
+          />
+        )}
+
         {/* Analytics Dashboard Modal */}
         {showAnalytics && (
           <AnalyticsDashboard onClose={() => setShowAnalytics(false)} />
+        )}
+
+        {/* Comparison Mode Modal */}
+        {showComparison && (
+          <ComparisonMode
+            onClose={() => setShowComparison(false)}
+            onSwitchToSingle={handleSwitchToSingle}
+          />
         )}
       </div>
     </div>
