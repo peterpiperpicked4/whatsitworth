@@ -5,6 +5,7 @@ import {
   downloadClicksCSV,
   type AnalyticsSummary,
   type ClickEvent,
+  type DateRange,
 } from '../services/analytics';
 
 interface AnalyticsDashboardProps {
@@ -14,10 +15,44 @@ interface AnalyticsDashboardProps {
 export function AnalyticsDashboard({ onClose }: AnalyticsDashboardProps) {
   const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [dateRange, setDateRange] = useState<DateRange>({ start: null, end: null });
+  const [startDateStr, setStartDateStr] = useState('');
+  const [endDateStr, setEndDateStr] = useState('');
 
   useEffect(() => {
-    setSummary(getAnalyticsSummary());
-  }, [refreshKey]);
+    setSummary(getAnalyticsSummary(dateRange));
+  }, [refreshKey, dateRange]);
+
+  const handleStartDateChange = (value: string) => {
+    setStartDateStr(value);
+    setDateRange((prev) => ({
+      ...prev,
+      start: value ? new Date(value) : null,
+    }));
+  };
+
+  const handleEndDateChange = (value: string) => {
+    setEndDateStr(value);
+    setDateRange((prev) => ({
+      ...prev,
+      end: value ? new Date(value) : null,
+    }));
+  };
+
+  const handleClearDateRange = () => {
+    setStartDateStr('');
+    setEndDateStr('');
+    setDateRange({ start: null, end: null });
+  };
+
+  const setPresetRange = (days: number) => {
+    const end = new Date();
+    const start = new Date();
+    start.setDate(start.getDate() - days);
+    setStartDateStr(start.toISOString().split('T')[0]);
+    setEndDateStr(end.toISOString().split('T')[0]);
+    setDateRange({ start, end });
+  };
 
   const handleClear = () => {
     if (confirm('Are you sure you want to clear all click history?')) {
@@ -89,7 +124,7 @@ export function AnalyticsDashboard({ onClose }: AnalyticsDashboardProps) {
               </svg>
             </button>
             <button
-              onClick={downloadClicksCSV}
+              onClick={() => downloadClicksCSV(dateRange)}
               className="p-2 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-400 hover:text-emerald-300 transition-all"
               title="Export to CSV"
             >
@@ -117,6 +152,71 @@ export function AnalyticsDashboard({ onClose }: AnalyticsDashboardProps) {
           </div>
         </div>
 
+        {/* Date Range Filter */}
+        <div className="px-6 py-4 border-b border-white/10 bg-white/5">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              <span className="text-sm text-gray-400">Filter by date:</span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={startDateStr}
+                onChange={(e) => handleStartDateChange(e.target.value)}
+                className="px-3 py-1.5 text-sm bg-white/5 border border-white/10 rounded-lg text-white focus:outline-none focus:border-violet-500/50 [color-scheme:dark]"
+                placeholder="Start date"
+              />
+              <span className="text-gray-500">to</span>
+              <input
+                type="date"
+                value={endDateStr}
+                onChange={(e) => handleEndDateChange(e.target.value)}
+                className="px-3 py-1.5 text-sm bg-white/5 border border-white/10 rounded-lg text-white focus:outline-none focus:border-violet-500/50 [color-scheme:dark]"
+                placeholder="End date"
+              />
+            </div>
+
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setPresetRange(7)}
+                className="px-2 py-1 text-xs bg-white/5 hover:bg-white/10 border border-white/10 rounded text-gray-400 hover:text-white transition-all"
+              >
+                7d
+              </button>
+              <button
+                onClick={() => setPresetRange(30)}
+                className="px-2 py-1 text-xs bg-white/5 hover:bg-white/10 border border-white/10 rounded text-gray-400 hover:text-white transition-all"
+              >
+                30d
+              </button>
+              <button
+                onClick={() => setPresetRange(90)}
+                className="px-2 py-1 text-xs bg-white/5 hover:bg-white/10 border border-white/10 rounded text-gray-400 hover:text-white transition-all"
+              >
+                90d
+              </button>
+              {(dateRange.start || dateRange.end) && (
+                <button
+                  onClick={handleClearDateRange}
+                  className="px-2 py-1 text-xs bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded text-red-400 hover:text-red-300 transition-all ml-1"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+
+            {(dateRange.start || dateRange.end) && (
+              <span className="text-xs text-violet-400 ml-auto">
+                Showing filtered results
+              </span>
+            )}
+          </div>
+        </div>
+
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {summary.totalClicks === 0 ? (
@@ -126,8 +226,22 @@ export function AnalyticsDashboard({ onClose }: AnalyticsDashboardProps) {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
                 </svg>
               </div>
-              <h3 className="text-lg font-medium text-white mb-2">No clicks yet</h3>
-              <p className="text-gray-400">Affiliate link clicks will appear here once users start clicking.</p>
+              <h3 className="text-lg font-medium text-white mb-2">
+                {dateRange.start || dateRange.end ? 'No clicks in this date range' : 'No clicks yet'}
+              </h3>
+              <p className="text-gray-400">
+                {dateRange.start || dateRange.end
+                  ? 'Try adjusting the date range or clear the filter to see all clicks.'
+                  : 'Affiliate link clicks will appear here once users start clicking.'}
+              </p>
+              {(dateRange.start || dateRange.end) && (
+                <button
+                  onClick={handleClearDateRange}
+                  className="mt-4 px-4 py-2 text-sm bg-violet-500/20 hover:bg-violet-500/30 border border-violet-500/30 rounded-lg text-violet-400 hover:text-violet-300 transition-all"
+                >
+                  Clear date filter
+                </button>
+              )}
             </div>
           ) : (
             <>

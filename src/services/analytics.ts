@@ -19,6 +19,11 @@ export interface AnalyticsSummary {
   recentClicks: ClickEvent[];
 }
 
+export interface DateRange {
+  start: Date | null;
+  end: Date | null;
+}
+
 const STORAGE_KEY = 'whatsitworth_affiliate_clicks';
 
 function generateId(): string {
@@ -80,17 +85,33 @@ async function sendToAnalytics(event: ClickEvent): Promise<void> {
   }
 }
 
-export function getClickHistory(): ClickEvent[] {
+export function getClickHistory(dateRange?: DateRange): ClickEvent[] {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : [];
+    const clicks: ClickEvent[] = stored ? JSON.parse(stored) : [];
+
+    if (!dateRange || (!dateRange.start && !dateRange.end)) {
+      return clicks;
+    }
+
+    return clicks.filter((click) => {
+      const clickDate = new Date(click.timestamp);
+      if (dateRange.start && clickDate < dateRange.start) return false;
+      if (dateRange.end) {
+        // Include the entire end date by setting time to end of day
+        const endOfDay = new Date(dateRange.end);
+        endOfDay.setHours(23, 59, 59, 999);
+        if (clickDate > endOfDay) return false;
+      }
+      return true;
+    });
   } catch {
     return [];
   }
 }
 
-export function getAnalyticsSummary(): AnalyticsSummary {
-  const clicks = getClickHistory();
+export function getAnalyticsSummary(dateRange?: DateRange): AnalyticsSummary {
+  const clicks = getClickHistory(dateRange);
 
   const clicksByType: Record<string, number> = {};
   const clicksByRegistrar: Record<string, number> = {};
@@ -120,8 +141,8 @@ export function clearClickHistory(): void {
   localStorage.removeItem(STORAGE_KEY);
 }
 
-export function exportClicksToCSV(): string {
-  const clicks = getClickHistory();
+export function exportClicksToCSV(dateRange?: DateRange): string {
+  const clicks = getClickHistory(dateRange);
 
   if (clicks.length === 0) {
     return '';
@@ -159,8 +180,8 @@ export function exportClicksToCSV(): string {
   return csvContent;
 }
 
-export function downloadClicksCSV(): void {
-  const csv = exportClicksToCSV();
+export function downloadClicksCSV(dateRange?: DateRange): void {
+  const csv = exportClicksToCSV(dateRange);
 
   if (!csv) {
     alert('No click data to export');
@@ -171,7 +192,17 @@ export function downloadClicksCSV(): void {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = `whatsitworth-affiliate-clicks-${new Date().toISOString().split('T')[0]}.csv`;
+
+  // Create filename with date range if specified
+  let filename = 'whatsitworth-affiliate-clicks';
+  if (dateRange?.start || dateRange?.end) {
+    if (dateRange.start) filename += `-from-${dateRange.start.toISOString().split('T')[0]}`;
+    if (dateRange.end) filename += `-to-${dateRange.end.toISOString().split('T')[0]}`;
+  } else {
+    filename += `-${new Date().toISOString().split('T')[0]}`;
+  }
+  link.download = `${filename}.csv`;
+
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
