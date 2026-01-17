@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { UrlInput } from './components/UrlInput';
 import { AnalysisLoader } from './components/AnalysisLoader';
 import { ResultsDashboard } from './components/ResultsDashboard';
+import { AnalyticsDashboard } from './components/AnalyticsDashboard';
 import { analyzeWebsite } from './services/valuationEngine';
 import type { WebsiteAnalysis, AnalysisStatus } from './types/analysis';
 
@@ -9,6 +10,7 @@ function App() {
   const [status, setStatus] = useState<AnalysisStatus>('idle');
   const [analysis, setAnalysis] = useState<WebsiteAnalysis | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showAnalytics, setShowAnalytics] = useState(false);
 
   const handleAnalyze = async (url: string) => {
     setStatus('analyzing');
@@ -149,10 +151,24 @@ function App() {
 
         {/* Footer */}
         <footer className="py-6 px-4 border-t border-white/5">
-          <div className="max-w-6xl mx-auto text-center text-gray-500 text-sm">
+          <div className="max-w-6xl mx-auto flex items-center justify-center gap-4 text-gray-500 text-sm">
             <p>What's It Worth? - Instant website value estimation</p>
+            <button
+              onClick={() => setShowAnalytics(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 hover:border-violet-500/50 text-gray-400 hover:text-violet-400 transition-all text-xs"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              </svg>
+              Analytics
+            </button>
           </div>
         </footer>
+
+        {/* Analytics Dashboard Modal */}
+        {showAnalytics && (
+          <AnalyticsDashboard onClose={() => setShowAnalytics(false)} />
+        )}
       </div>
     </div>
   );
