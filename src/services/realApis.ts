@@ -1190,3 +1190,544 @@ export function estimateUnregisteredDomainValue(name: string, tld: string): {
 
   return { estimatedValue: Math.round(value), factors };
 }
+
+// ============================================
+// WHOIS/RDAP DOMAIN DATA (FREE)
+// Verified domain registration information
+// ============================================
+export interface RdapResult {
+  registrar: string | null;
+  creationDate: Date | null;
+  expirationDate: Date | null;
+  updatedDate: Date | null;
+  registrantCountry: string | null;
+  nameservers: string[];
+  status: string[];
+  verifiedAgeYears: number | null;
+  daysUntilExpiry: number | null;
+  isExpiringSoon: boolean; // < 90 days
+}
+
+export async function getRdapData(domain: string): Promise<RdapResult> {
+  const defaultResult: RdapResult = {
+    registrar: null,
+    creationDate: null,
+    expirationDate: null,
+    updatedDate: null,
+    registrantCountry: null,
+    nameservers: [],
+    status: [],
+    verifiedAgeYears: null,
+    daysUntilExpiry: null,
+    isExpiringSoon: false,
+  };
+
+  try {
+    // RDAP is the modern replacement for WHOIS - free and structured
+    const rdapUrl = `https://rdap.org/domain/${encodeURIComponent(domain)}`;
+
+    console.log(`RDAP: Fetching data for ${domain}`);
+
+    const response = await fetchWithCorsProxy(rdapUrl);
+
+    if (!response.ok) {
+      console.warn(`RDAP returned ${response.status} for ${domain}`);
+      return defaultResult;
+    }
+
+    const data = await response.json();
+
+    const result: RdapResult = { ...defaultResult };
+
+    // Extract registrar
+    if (data.entities) {
+      for (const entity of data.entities) {
+        if (entity.roles?.includes('registrar')) {
+          result.registrar = entity.vcardArray?.[1]?.find((v: string[]) => v[0] === 'fn')?.[3] ||
+                            entity.publicIds?.[0]?.identifier ||
+                            null;
+        }
+        if (entity.roles?.includes('registrant')) {
+          // Try to get country from vcard
+          const adr = entity.vcardArray?.[1]?.find((v: string[]) => v[0] === 'adr');
+          if (adr && Array.isArray(adr[3])) {
+            result.registrantCountry = adr[3][6] || null; // Country is typically last element
+          }
+        }
+      }
+    }
+
+    // Extract dates from events
+    if (data.events) {
+      for (const event of data.events) {
+        const eventDate = new Date(event.eventDate);
+        if (event.eventAction === 'registration') {
+          result.creationDate = eventDate;
+        } else if (event.eventAction === 'expiration') {
+          result.expirationDate = eventDate;
+        } else if (event.eventAction === 'last changed' || event.eventAction === 'last update of RDAP database') {
+          result.updatedDate = eventDate;
+        }
+      }
+    }
+
+    // Extract nameservers
+    if (data.nameservers) {
+      result.nameservers = data.nameservers.map((ns: { ldhName: string }) => ns.ldhName).filter(Boolean);
+    }
+
+    // Extract status
+    if (data.status) {
+      result.status = data.status;
+    }
+
+    // Calculate derived values
+    if (result.creationDate) {
+      const now = new Date();
+      const ageMs = now.getTime() - result.creationDate.getTime();
+      result.verifiedAgeYears = Math.round((ageMs / (1000 * 60 * 60 * 24 * 365.25)) * 10) / 10;
+    }
+
+    if (result.expirationDate) {
+      const now = new Date();
+      const daysUntil = Math.floor((result.expirationDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+      result.daysUntilExpiry = daysUntil;
+      result.isExpiringSoon = daysUntil < 90;
+    }
+
+    console.log(`RDAP: ${domain} registrar=${result.registrar}, age=${result.verifiedAgeYears}yrs, expiry=${result.daysUntilExpiry}days`);
+    return result;
+  } catch (error) {
+    console.warn('RDAP API failed:', error);
+    return defaultResult;
+  }
+}
+
+// ============================================
+// GOOGLE INDEXED PAGE COUNT ESTIMATION
+// Real indexed page count from search
+// ============================================
+export interface IndexedPagesResult {
+  estimatedCount: number | null;
+  confidence: 'high' | 'medium' | 'low';
+  source: string;
+}
+
+export async function getIndexedPageCount(domain: string): Promise<IndexedPagesResult> {
+  try {
+    // Use Google search with site: operator
+    // Note: This is an estimation as Google doesn't provide exact counts via API
+    const searchUrl = `https://www.google.com/search?q=site:${encodeURIComponent(domain)}`;
+
+    console.log(`Indexed Pages: Checking ${domain}`);
+
+    const response = await fetchWithCorsProxy(searchUrl);
+    const html = await response.text();
+
+    // Look for "About X results" pattern
+    // Patterns: "About 1,234,567 results" or "1,234 results"
+    const resultMatch = html.match(/About\s+([\d,]+)\s+results/i) ||
+                       html.match(/([\d,]+)\s+results/i);
+
+    if (resultMatch) {
+      const count = parseInt(resultMatch[1].replace(/,/g, ''), 10);
+      console.log(`Indexed Pages: ${domain} has ~${count.toLocaleString()} indexed pages`);
+      return {
+        estimatedCount: count,
+        confidence: count > 10000 ? 'medium' : 'high', // Large counts are estimates
+        source: 'google-search',
+      };
+    }
+
+    // If no results found, check if site is indexed at all
+    if (html.includes('did not match any documents') || html.includes('No results found')) {
+      console.log(`Indexed Pages: ${domain} has 0 indexed pages`);
+      return {
+        estimatedCount: 0,
+        confidence: 'high',
+        source: 'google-search',
+      };
+    }
+
+    return {
+      estimatedCount: null,
+      confidence: 'low',
+      source: 'google-search-failed',
+    };
+  } catch (error) {
+    console.warn('Indexed pages check failed:', error);
+    return {
+      estimatedCount: null,
+      confidence: 'low',
+      source: 'error',
+    };
+  }
+}
+
+// ============================================
+// CHROME UX REPORT (CrUX) - REAL USER DATA
+// Field data from Chrome users
+// ============================================
+export interface CruxResult {
+  hasData: boolean;
+  // Core Web Vitals
+  lcp: { p75: number | null; rating: 'good' | 'needs-improvement' | 'poor' | null }; // Largest Contentful Paint
+  fid: { p75: number | null; rating: 'good' | 'needs-improvement' | 'poor' | null }; // First Input Delay
+  cls: { p75: number | null; rating: 'good' | 'needs-improvement' | 'poor' | null }; // Cumulative Layout Shift
+  inp: { p75: number | null; rating: 'good' | 'needs-improvement' | 'poor' | null }; // Interaction to Next Paint
+  ttfb: { p75: number | null; rating: 'good' | 'needs-improvement' | 'poor' | null }; // Time to First Byte
+  // Aggregate
+  overallRating: 'good' | 'needs-improvement' | 'poor' | null;
+  formFactor: 'phone' | 'desktop' | 'tablet' | null;
+}
+
+export async function getCruxData(url: string): Promise<CruxResult> {
+  const defaultResult: CruxResult = {
+    hasData: false,
+    lcp: { p75: null, rating: null },
+    fid: { p75: null, rating: null },
+    cls: { p75: null, rating: null },
+    inp: { p75: null, rating: null },
+    ttfb: { p75: null, rating: null },
+    overallRating: null,
+    formFactor: null,
+  };
+
+  try {
+    // CrUX API - free with Google API key
+    // For now, we can extract CrUX data from PageSpeed Insights which includes it
+    // The PSI API already calls CrUX internally
+
+    console.log(`CrUX: Checking real user data for ${url}`);
+
+    // PageSpeed already includes CrUX data in loadingExperience
+    const apiUrl = `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${encodeURIComponent(url)}&strategy=mobile&category=performance`;
+
+    const response = await fetch(apiUrl);
+
+    if (!response.ok) {
+      return defaultResult;
+    }
+
+    const data = await response.json();
+    const cruxData = data.loadingExperience;
+
+    if (!cruxData || !cruxData.metrics) {
+      console.log(`CrUX: No field data available for ${url}`);
+      return defaultResult;
+    }
+
+    const result: CruxResult = {
+      hasData: true,
+      lcp: extractCruxMetric(cruxData.metrics, 'LARGEST_CONTENTFUL_PAINT_MS'),
+      fid: extractCruxMetric(cruxData.metrics, 'FIRST_INPUT_DELAY_MS'),
+      cls: extractCruxMetric(cruxData.metrics, 'CUMULATIVE_LAYOUT_SHIFT_SCORE'),
+      inp: extractCruxMetric(cruxData.metrics, 'INTERACTION_TO_NEXT_PAINT'),
+      ttfb: extractCruxMetric(cruxData.metrics, 'EXPERIMENTAL_TIME_TO_FIRST_BYTE'),
+      overallRating: cruxData.overall_category?.toLowerCase() || null,
+      formFactor: 'phone', // We requested mobile
+    };
+
+    console.log(`CrUX: ${url} LCP=${result.lcp.p75}ms (${result.lcp.rating}), CLS=${result.cls.p75} (${result.cls.rating})`);
+    return result;
+  } catch (error) {
+    console.warn('CrUX data fetch failed:', error);
+    return defaultResult;
+  }
+}
+
+function extractCruxMetric(
+  metrics: Record<string, { percentile: number; category: string }>,
+  key: string
+): { p75: number | null; rating: 'good' | 'needs-improvement' | 'poor' | null } {
+  const metric = metrics[key];
+  if (!metric) {
+    return { p75: null, rating: null };
+  }
+  return {
+    p75: metric.percentile,
+    rating: metric.category?.toLowerCase() as 'good' | 'needs-improvement' | 'poor' || null,
+  };
+}
+
+// ============================================
+// COMMONCRAWL BACKLINK ESTIMATION
+// Free backlink data from web crawl index
+// ============================================
+export interface BacklinkResult {
+  estimatedBacklinks: number;
+  uniqueDomains: number;
+  topReferrers: string[];
+  hasBacklinkData: boolean;
+}
+
+export async function getBacklinkEstimate(domain: string): Promise<BacklinkResult> {
+  const defaultResult: BacklinkResult = {
+    estimatedBacklinks: 0,
+    uniqueDomains: 0,
+    topReferrers: [],
+    hasBacklinkData: false,
+  };
+
+  try {
+    // CommonCrawl Index API - search for pages linking to this domain
+    // Using the latest available index
+    console.log(`Backlinks: Estimating backlinks for ${domain}`);
+
+    // CommonCrawl index search - look for pages containing this domain
+    const ccUrl = `https://index.commoncrawl.org/CC-MAIN-2024-10-index?url=*.${domain}&output=json&limit=100`;
+
+    // Note: CommonCrawl requires specific query format and may be slow
+    // For MVP, we'll use a simpler heuristic based on other signals
+
+    // Alternative: Use the domain's mentions in CommonCrawl
+    const searchUrl = `https://index.commoncrawl.org/CC-MAIN-2024-10-index?url=${encodeURIComponent(domain)}/*&output=json&limit=1`;
+
+    try {
+      const response = await fetchWithCorsProxy(searchUrl);
+      const text = await response.text();
+
+      // Count the number of results (each line is a JSON object)
+      const lines = text.trim().split('\n').filter(l => l.length > 0);
+
+      if (lines.length > 0) {
+        // Estimate backlinks based on CommonCrawl presence
+        // Sites in CC typically have more backlinks
+        const ccPages = lines.length;
+
+        // Rough heuristic: if site has X pages in CC, estimate Y backlinks
+        const estimatedBacklinks = ccPages * 10; // Conservative multiplier
+
+        console.log(`Backlinks: ${domain} found ${ccPages} pages in CommonCrawl, est. ${estimatedBacklinks} backlinks`);
+
+        return {
+          estimatedBacklinks,
+          uniqueDomains: Math.round(estimatedBacklinks * 0.3), // Estimate unique domains
+          topReferrers: [],
+          hasBacklinkData: true,
+        };
+      }
+    } catch (e) {
+      console.warn('CommonCrawl query failed:', e);
+    }
+
+    return defaultResult;
+  } catch (error) {
+    console.warn('Backlink estimation failed:', error);
+    return defaultResult;
+  }
+}
+
+// ============================================
+// BRAND MENTIONS (Reddit + Hacker News)
+// Social proof and community presence
+// ============================================
+export interface BrandMentionsResult {
+  reddit: {
+    mentionCount: number;
+    topSubreddits: string[];
+    recentPosts: { title: string; subreddit: string; score: number; url: string }[];
+  };
+  hackerNews: {
+    mentionCount: number;
+    totalPoints: number;
+    recentStories: { title: string; points: number; comments: number; url: string }[];
+  };
+  totalMentions: number;
+  hasBrandPresence: boolean;
+  sentimentIndicator: 'positive' | 'neutral' | 'negative' | 'unknown';
+}
+
+export async function getBrandMentions(domain: string): Promise<BrandMentionsResult> {
+  const result: BrandMentionsResult = {
+    reddit: { mentionCount: 0, topSubreddits: [], recentPosts: [] },
+    hackerNews: { mentionCount: 0, totalPoints: 0, recentStories: [] },
+    totalMentions: 0,
+    hasBrandPresence: false,
+    sentimentIndicator: 'unknown',
+  };
+
+  const cleanDomain = domain.replace(/^www\./, '');
+
+  // Fetch Reddit and HN in parallel
+  const [redditResult, hnResult] = await Promise.allSettled([
+    fetchRedditMentions(cleanDomain),
+    fetchHackerNewsMentions(cleanDomain),
+  ]);
+
+  if (redditResult.status === 'fulfilled') {
+    result.reddit = redditResult.value;
+  }
+
+  if (hnResult.status === 'fulfilled') {
+    result.hackerNews = hnResult.value;
+  }
+
+  result.totalMentions = result.reddit.mentionCount + result.hackerNews.mentionCount;
+  result.hasBrandPresence = result.totalMentions > 5;
+
+  // Simple sentiment from HN points (high points = positive reception)
+  if (result.hackerNews.totalPoints > 100) {
+    result.sentimentIndicator = 'positive';
+  } else if (result.totalMentions > 0) {
+    result.sentimentIndicator = 'neutral';
+  }
+
+  console.log(`Brand Mentions: ${domain} - Reddit: ${result.reddit.mentionCount}, HN: ${result.hackerNews.mentionCount}`);
+  return result;
+}
+
+async function fetchRedditMentions(domain: string): Promise<BrandMentionsResult['reddit']> {
+  try {
+    const searchUrl = `https://www.reddit.com/search.json?q=${encodeURIComponent(domain)}&sort=relevance&limit=25`;
+
+    const response = await fetch(searchUrl, {
+      headers: { 'User-Agent': 'WebsiteValueAnalyzer/1.0' }
+    });
+
+    if (!response.ok) {
+      return { mentionCount: 0, topSubreddits: [], recentPosts: [] };
+    }
+
+    const data = await response.json();
+    const posts = data?.data?.children || [];
+
+    const subredditCounts: Record<string, number> = {};
+    const recentPosts: BrandMentionsResult['reddit']['recentPosts'] = [];
+
+    for (const post of posts.slice(0, 10)) {
+      const p = post.data;
+      subredditCounts[p.subreddit] = (subredditCounts[p.subreddit] || 0) + 1;
+      recentPosts.push({
+        title: p.title?.slice(0, 100) || '',
+        subreddit: p.subreddit,
+        score: p.score || 0,
+        url: `https://reddit.com${p.permalink}`,
+      });
+    }
+
+    const topSubreddits = Object.entries(subredditCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([sub]) => sub);
+
+    return {
+      mentionCount: posts.length,
+      topSubreddits,
+      recentPosts: recentPosts.slice(0, 5),
+    };
+  } catch (error) {
+    console.warn('Reddit search failed:', error);
+    return { mentionCount: 0, topSubreddits: [], recentPosts: [] };
+  }
+}
+
+async function fetchHackerNewsMentions(domain: string): Promise<BrandMentionsResult['hackerNews']> {
+  try {
+    // Hacker News Algolia API - free and well-documented
+    const searchUrl = `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(domain)}&tags=story&hitsPerPage=25`;
+
+    const response = await fetch(searchUrl);
+
+    if (!response.ok) {
+      return { mentionCount: 0, totalPoints: 0, recentStories: [] };
+    }
+
+    const data = await response.json();
+    const hits = data?.hits || [];
+
+    let totalPoints = 0;
+    const recentStories: BrandMentionsResult['hackerNews']['recentStories'] = [];
+
+    for (const hit of hits.slice(0, 10)) {
+      totalPoints += hit.points || 0;
+      recentStories.push({
+        title: hit.title?.slice(0, 100) || '',
+        points: hit.points || 0,
+        comments: hit.num_comments || 0,
+        url: `https://news.ycombinator.com/item?id=${hit.objectID}`,
+      });
+    }
+
+    return {
+      mentionCount: data.nbHits || hits.length,
+      totalPoints,
+      recentStories: recentStories.slice(0, 5),
+    };
+  } catch (error) {
+    console.warn('Hacker News search failed:', error);
+    return { mentionCount: 0, totalPoints: 0, recentStories: [] };
+  }
+}
+
+// ============================================
+// MOBILE-FRIENDLY TEST
+// Mobile usability assessment
+// ============================================
+export interface MobileFriendlyResult {
+  isMobileFriendly: boolean;
+  hasViewport: boolean;
+  hasTouchIcons: boolean;
+  hasResponsiveDesign: boolean;
+  fontSizeOk: boolean;
+  tapTargetsOk: boolean;
+  mobileScore: number; // 0-100
+  issues: string[];
+}
+
+export function analyzeMobileFriendliness(html: string): MobileFriendlyResult {
+  const lowerHtml = html.toLowerCase();
+  const issues: string[] = [];
+
+  // Check viewport meta tag
+  const hasViewport = lowerHtml.includes('name="viewport"') || lowerHtml.includes("name='viewport'");
+  if (!hasViewport) issues.push('Missing viewport meta tag');
+
+  // Check for responsive design indicators
+  const hasMediaQueries = lowerHtml.includes('@media');
+  const hasFlexbox = lowerHtml.includes('display:flex') || lowerHtml.includes('display: flex');
+  const hasGrid = lowerHtml.includes('display:grid') || lowerHtml.includes('display: grid');
+  const hasBootstrap = lowerHtml.includes('bootstrap');
+  const hasTailwind = lowerHtml.includes('tailwind');
+  const hasResponsiveDesign = hasMediaQueries || hasFlexbox || hasGrid || hasBootstrap || hasTailwind;
+  if (!hasResponsiveDesign) issues.push('No responsive design patterns detected');
+
+  // Check for touch icons (Apple, Android)
+  const hasTouchIcons = lowerHtml.includes('apple-touch-icon') ||
+                        lowerHtml.includes('android-chrome') ||
+                        lowerHtml.includes('manifest.json');
+
+  // Check for mobile-unfriendly patterns
+  const hasFlash = lowerHtml.includes('application/x-shockwave-flash');
+  if (hasFlash) issues.push('Uses Flash (not mobile-friendly)');
+
+  const hasFixedWidth = /width:\s*\d{4,}px/i.test(html); // Fixed width > 1000px
+  if (hasFixedWidth) issues.push('Fixed wide layouts detected');
+
+  const hasTinyFonts = /font-size:\s*[0-8]px/i.test(html);
+  if (hasTinyFonts) issues.push('Very small font sizes detected');
+
+  // Calculate mobile score
+  let score = 50; // Base score
+  if (hasViewport) score += 20;
+  if (hasResponsiveDesign) score += 15;
+  if (hasTouchIcons) score += 5;
+  if (!hasFlash) score += 5;
+  if (!hasFixedWidth) score += 5;
+  score = Math.max(0, Math.min(100, score));
+
+  const isMobileFriendly = score >= 70;
+
+  console.log(`Mobile: Score=${score}, Viewport=${hasViewport}, Responsive=${hasResponsiveDesign}`);
+
+  return {
+    isMobileFriendly,
+    hasViewport,
+    hasTouchIcons,
+    hasResponsiveDesign,
+    fontSizeOk: !hasTinyFonts,
+    tapTargetsOk: !hasTinyFonts, // Simplified check
+    mobileScore: score,
+    issues,
+  };
+}

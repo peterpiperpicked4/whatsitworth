@@ -307,6 +307,14 @@ export interface WebsiteAnalysis {
   socialFollowers: SocialFollowersData | null;
   ssl: SSLAnalysis | null;
 
+  // v2.1 New data sources
+  rdap: RdapData | null;
+  indexedPages: IndexedPagesData | null;
+  crux: CruxData | null;
+  backlinks: BacklinksData | null;
+  brandMentions: BrandMentionsData | null;
+  mobile: MobileFriendlyData;
+
   // Scores
   scores: ScoreBreakdown;
 
@@ -333,4 +341,72 @@ export interface AnalysisProgress {
   stage: string;
   percent: number;
   currentTask: string;
+}
+
+// ============================================
+// v2.1 NEW DATA TYPES
+// ============================================
+
+export interface RdapData {
+  registrar: string | null;
+  creationDate: Date | null;
+  expirationDate: Date | null;
+  updatedDate: Date | null;
+  registrantCountry: string | null;
+  nameservers: string[];
+  status: string[];
+  verifiedAgeYears: number | null;
+  daysUntilExpiry: number | null;
+  isExpiringSoon: boolean;
+}
+
+export interface IndexedPagesData {
+  estimatedCount: number | null;
+  confidence: 'high' | 'medium' | 'low';
+  source: string;
+}
+
+export interface CruxData {
+  hasData: boolean;
+  lcp: { p75: number | null; rating: 'good' | 'needs-improvement' | 'poor' | null };
+  fid: { p75: number | null; rating: 'good' | 'needs-improvement' | 'poor' | null };
+  cls: { p75: number | null; rating: 'good' | 'needs-improvement' | 'poor' | null };
+  inp: { p75: number | null; rating: 'good' | 'needs-improvement' | 'poor' | null };
+  ttfb: { p75: number | null; rating: 'good' | 'needs-improvement' | 'poor' | null };
+  overallRating: 'good' | 'needs-improvement' | 'poor' | null;
+  formFactor: 'phone' | 'desktop' | 'tablet' | null;
+}
+
+export interface BacklinksData {
+  estimatedBacklinks: number;
+  uniqueDomains: number;
+  topReferrers: string[];
+  hasBacklinkData: boolean;
+}
+
+export interface BrandMentionsData {
+  reddit: {
+    mentionCount: number;
+    topSubreddits: string[];
+    recentPosts: { title: string; subreddit: string; score: number; url: string }[];
+  };
+  hackerNews: {
+    mentionCount: number;
+    totalPoints: number;
+    recentStories: { title: string; points: number; comments: number; url: string }[];
+  };
+  totalMentions: number;
+  hasBrandPresence: boolean;
+  sentimentIndicator: 'positive' | 'neutral' | 'negative' | 'unknown';
+}
+
+export interface MobileFriendlyData {
+  isMobileFriendly: boolean;
+  hasViewport: boolean;
+  hasTouchIcons: boolean;
+  hasResponsiveDesign: boolean;
+  fontSizeOk: boolean;
+  tapTargetsOk: boolean;
+  mobileScore: number;
+  issues: string[];
 }

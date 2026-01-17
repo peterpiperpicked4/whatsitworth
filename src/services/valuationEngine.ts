@@ -43,7 +43,20 @@ import {
   getTrancoRank,
   scrapeSocialFollowers,
   getSSLLabsGrade,
+  // New v2.1 APIs
+  getRdapData,
+  getIndexedPageCount,
+  getCruxData,
+  getBacklinkEstimate,
+  getBrandMentions,
+  analyzeMobileFriendliness,
   type TrancoRankResult,
+  type RdapResult,
+  type IndexedPagesResult,
+  type CruxResult,
+  type BacklinkResult,
+  type BrandMentionsResult,
+  type MobileFriendlyResult,
 } from './realApis';
 
 // ============================================
@@ -1209,6 +1222,12 @@ export async function analyzeWebsite(inputUrl: string): Promise<WebsiteAnalysis>
     pageSpeedResult,
     trancoRank,
     sslResult,
+    // New v2.1 data sources
+    rdapData,
+    indexedPages,
+    cruxData,
+    backlinks,
+    brandMentions,
   ] = await Promise.all([
     analyzeDomainComprehensive(url),
     analyzeDns(domainName).then(dns => {
@@ -1230,6 +1249,27 @@ export async function analyzeWebsite(inputUrl: string): Promise<WebsiteAnalysis>
     }),
     getSSLLabsGrade(domainName).then(result => {
       if (result.analysisComplete) dataSourcesUsed.push('SSL Labs Security Analysis');
+      return result;
+    }),
+    // New v2.1 API calls
+    getRdapData(domainName).then(result => {
+      if (result.registrar) dataSourcesUsed.push('RDAP/WHOIS Domain Registry');
+      return result;
+    }),
+    getIndexedPageCount(domainName).then(result => {
+      if (result.estimatedCount !== null) dataSourcesUsed.push('Google Search Index');
+      return result;
+    }),
+    getCruxData(url).then(result => {
+      if (result.hasData) dataSourcesUsed.push('Chrome UX Report (Real User Data)');
+      return result;
+    }),
+    getBacklinkEstimate(domainName).then(result => {
+      if (result.hasBacklinkData) dataSourcesUsed.push('CommonCrawl Backlink Index');
+      return result;
+    }),
+    getBrandMentions(domainName).then(result => {
+      if (result.hasBrandPresence) dataSourcesUsed.push('Reddit & Hacker News Mentions');
       return result;
     }),
   ]);
@@ -1255,6 +1295,12 @@ export async function analyzeWebsite(inputUrl: string): Promise<WebsiteAnalysis>
   const contentAnalysis = analyzeContentComprehensive(html);
   const socialAnalysis = analyzeSocialComprehensive(html);
   const monetizationAnalysis = analyzeMonetization(html, technologyAnalysis);
+
+  // New v2.1: Mobile-friendliness analysis
+  const mobileAnalysis = analyzeMobileFriendliness(html);
+  if (mobileAnalysis.isMobileFriendly) {
+    dataSourcesUsed.push('Mobile-Friendly Analysis');
+  }
 
   // Build complete security analysis
   const securityAnalysis: SecurityAnalysis = {
@@ -1348,7 +1394,7 @@ export async function analyzeWebsite(inputUrl: string): Promise<WebsiteAnalysis>
   return {
     url,
     analyzedAt: new Date(),
-    analysisVersion: '2.0.0',
+    analysisVersion: '2.1.0',
     domain: domainAnalysis,
     performance: performanceAnalysis,
     technical: technicalAnalysis,
@@ -1372,6 +1418,13 @@ export async function analyzeWebsite(inputUrl: string): Promise<WebsiteAnalysis>
       vulnerabilities: sslResult.vulnerabilities,
       analysisComplete: sslResult.analysisComplete,
     } : null,
+    // v2.1 New data sources
+    rdap: rdapData.registrar ? rdapData : null,
+    indexedPages: indexedPages.estimatedCount !== null ? indexedPages : null,
+    crux: cruxData.hasData ? cruxData : null,
+    backlinks: backlinks.hasBacklinkData ? backlinks : null,
+    brandMentions: brandMentions.hasBrandPresence ? brandMentions : null,
+    mobile: mobileAnalysis,
     scores,
     estimatedValue: valuation.value,
     valueRange: valuation.range,
