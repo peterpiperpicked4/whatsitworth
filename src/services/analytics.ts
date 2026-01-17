@@ -120,11 +120,71 @@ export function clearClickHistory(): void {
   localStorage.removeItem(STORAGE_KEY);
 }
 
+export function exportClicksToCSV(): string {
+  const clicks = getClickHistory();
+
+  if (clicks.length === 0) {
+    return '';
+  }
+
+  const headers = [
+    'ID',
+    'Timestamp',
+    'Date',
+    'Type',
+    'Registrar',
+    'Analyzed Domain',
+    'Clicked Domain',
+    'Estimated Value',
+    'Is Premium',
+  ];
+
+  const rows = clicks.map((click) => [
+    click.id,
+    click.timestamp,
+    new Date(click.timestamp).toISOString(),
+    click.type,
+    click.registrar,
+    click.analyzedDomain,
+    click.clickedDomain,
+    click.estimatedValue,
+    click.isPremium ? 'Yes' : 'No',
+  ]);
+
+  const csvContent = [
+    headers.join(','),
+    ...rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')),
+  ].join('\n');
+
+  return csvContent;
+}
+
+export function downloadClicksCSV(): void {
+  const csv = exportClicksToCSV();
+
+  if (!csv) {
+    alert('No click data to export');
+    return;
+  }
+
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `whatsitworth-affiliate-clicks-${new Date().toISOString().split('T')[0]}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
 // Expose analytics to window for easy console access
 if (typeof window !== 'undefined') {
   (window as unknown as Record<string, unknown>).__affiliateAnalytics__ = {
     getHistory: getClickHistory,
     getSummary: getAnalyticsSummary,
     clear: clearClickHistory,
+    exportCSV: exportClicksToCSV,
+    downloadCSV: downloadClicksCSV,
   };
 }
