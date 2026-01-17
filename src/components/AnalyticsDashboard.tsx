@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   getAnalyticsSummary,
+  getClickHistory,
   clearClickHistory,
   downloadClicksCSV,
   type AnalyticsSummary,
@@ -22,6 +23,43 @@ export function AnalyticsDashboard({ onClose }: AnalyticsDashboardProps) {
   useEffect(() => {
     setSummary(getAnalyticsSummary(dateRange));
   }, [refreshKey, dateRange]);
+
+  // Calculate clicks over time data for the chart
+  const timeSeriesData = useMemo(() => {
+    const clicks = getClickHistory(dateRange);
+    if (clicks.length === 0) return [];
+
+    // Group clicks by day
+    const clicksByDay: Record<string, { date: string; total: number; registrar: number; tld: number; suggestion: number }> = {};
+
+    clicks.forEach((click) => {
+      const date = new Date(click.timestamp).toISOString().split('T')[0];
+      if (!clicksByDay[date]) {
+        clicksByDay[date] = { date, total: 0, registrar: 0, tld: 0, suggestion: 0 };
+      }
+      clicksByDay[date].total++;
+      if (click.type === 'registrar') clicksByDay[date].registrar++;
+      else if (click.type === 'alternative_tld') clicksByDay[date].tld++;
+      else if (click.type === 'domain_suggestion') clicksByDay[date].suggestion++;
+    });
+
+    // Convert to sorted array and fill gaps
+    const sortedDates = Object.keys(clicksByDay).sort();
+    if (sortedDates.length === 0) return [];
+
+    const result: typeof clicksByDay[string][] = [];
+    const startDate = new Date(sortedDates[0]);
+    const endDate = new Date(sortedDates[sortedDates.length - 1]);
+
+    // Fill in all days between start and end
+    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+      const dateStr = d.toISOString().split('T')[0];
+      result.push(clicksByDay[dateStr] || { date: dateStr, total: 0, registrar: 0, tld: 0, suggestion: 0 });
+    }
+
+    // Limit to last 30 days if too many data points
+    return result.slice(-30);
+  }, [dateRange, refreshKey]);
 
   const handleStartDateChange = (value: string) => {
     setStartDateStr(value);
@@ -269,6 +307,11 @@ export function AnalyticsDashboard({ onClose }: AnalyticsDashboardProps) {
                 />
               </div>
 
+              {/* Clicks Over Time Chart */}
+              {timeSeriesData.length > 0 && (
+                <ClicksOverTimeChart data={timeSeriesData} />
+              )}
+
               {/* Registrar Breakdown */}
               {Object.keys(summary.clicksByRegistrar).length > 0 && (
                 <div className="bg-white/5 rounded-xl p-4 border border-white/10">
@@ -382,6 +425,123 @@ function StatCard({
     <div className={`bg-gradient-to-br ${colorClasses[color]} border rounded-xl p-4 text-center`}>
       <p className="text-2xl font-bold text-white">{value.toLocaleString()}</p>
       <p className="text-xs text-gray-400 mt-1">{label}</p>
+    </div>
+  );
+}
+
+interface TimeSeriesDataPoint {
+  date: string;
+  total: number;
+  registrar: number;
+  tld: number;
+  suggestion: number;
+}
+
+function ClicksOverTimeChart({ data }: { data: TimeSeriesDataPoint[] }) {
+  const maxValue = Math.max(...data.map((d) => d.total), 1);
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+
+  const formatDateLabel = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
+  return (
+    <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-medium text-gray-400">Clicks Over Time</h3>
+        <div className="flex items-center gap-4 text-xs">
+          <div className="flex items-center gap-1.5">
+            <div className="w-2.5 h-2.5 rounded-full bg-purple-500" />
+            <span className="text-gray-400">Registrar</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-2.5 h-2.5 rounded-full bg-cyan-500" />
+            <span className="text-gray-400">TLD</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+            <span className="text-gray-400">Suggestion</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Chart */}
+      <div className="relative h-48">
+        {/* Y-axis labels */}
+        <div className="absolute left-0 top-0 bottom-6 w-8 flex flex-col justify-between text-xs text-gray-500">
+          <span>{maxValue}</span>
+          <span>{Math.round(maxValue / 2)}</span>
+          <span>0</span>
+        </div>
+
+        {/* Chart area */}
+        <div className="ml-10 h-full flex items-end gap-1 pb-6">
+          {data.map((point, index) => {
+            const totalHeight = (point.total / maxValue) * 100;
+            const registrarHeight = (point.registrar / maxValue) * 100;
+            const tldHeight = (point.tld / maxValue) * 100;
+            const suggestionHeight = (point.suggestion / maxValue) * 100;
+
+            return (
+              <div
+                key={point.date}
+                className="flex-1 flex flex-col justify-end relative group cursor-pointer"
+                style={{ minWidth: '8px', maxWidth: '40px' }}
+                onMouseEnter={() => setHoveredIndex(index)}
+                onMouseLeave={() => setHoveredIndex(null)}
+              >
+                {/* Stacked bar */}
+                <div className="w-full flex flex-col-reverse rounded-t overflow-hidden">
+                  {point.registrar > 0 && (
+                    <div
+                      className="w-full bg-purple-500 transition-all"
+                      style={{ height: `${(registrarHeight / totalHeight) * totalHeight * 1.4}px` }}
+                    />
+                  )}
+                  {point.tld > 0 && (
+                    <div
+                      className="w-full bg-cyan-500 transition-all"
+                      style={{ height: `${(tldHeight / totalHeight) * totalHeight * 1.4}px` }}
+                    />
+                  )}
+                  {point.suggestion > 0 && (
+                    <div
+                      className="w-full bg-emerald-500 transition-all"
+                      style={{ height: `${(suggestionHeight / totalHeight) * totalHeight * 1.4}px` }}
+                    />
+                  )}
+                  {point.total === 0 && (
+                    <div className="w-full bg-white/10 h-1 rounded-full" />
+                  )}
+                </div>
+
+                {/* Tooltip */}
+                {hoveredIndex === index && (
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-10 bg-gray-800 border border-white/20 rounded-lg p-2 text-xs whitespace-nowrap shadow-xl">
+                    <p className="text-white font-medium mb-1">{formatDateLabel(point.date)}</p>
+                    <p className="text-gray-300">Total: {point.total}</p>
+                    {point.registrar > 0 && <p className="text-purple-400">Registrar: {point.registrar}</p>}
+                    {point.tld > 0 && <p className="text-cyan-400">TLD: {point.tld}</p>}
+                    {point.suggestion > 0 && <p className="text-emerald-400">Suggestion: {point.suggestion}</p>}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* X-axis labels */}
+        <div className="ml-10 flex justify-between text-xs text-gray-500 mt-1">
+          {data.length > 0 && (
+            <>
+              <span>{formatDateLabel(data[0].date)}</span>
+              {data.length > 2 && <span>{formatDateLabel(data[Math.floor(data.length / 2)].date)}</span>}
+              <span>{formatDateLabel(data[data.length - 1].date)}</span>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
