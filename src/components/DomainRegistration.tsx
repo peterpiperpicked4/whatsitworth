@@ -1,9 +1,10 @@
-import { useMemo } from 'react';
+import { useMemo, useCallback } from 'react';
 import {
   generateDomainSuggestions,
   getRegistrarLinks,
   type DomainSuggestion,
 } from '../services/realApis';
+import { trackAffiliateClick } from '../services/analytics';
 
 interface DomainRegistrationProps {
   domain: string;
@@ -13,6 +14,30 @@ interface DomainRegistrationProps {
 export function DomainRegistration({ domain, estimatedValue }: DomainRegistrationProps) {
   const domainData = useMemo(() => generateDomainSuggestions(domain, true), [domain]);
   const registrarLinks = useMemo(() => getRegistrarLinks(domain), [domain]);
+
+  const handleRegistrarClick = useCallback((registrarName: string) => {
+    trackAffiliateClick({
+      type: 'registrar',
+      registrar: registrarName,
+      analyzedDomain: domain,
+      clickedDomain: domain,
+      estimatedValue,
+    });
+  }, [domain, estimatedValue]);
+
+  const handleDomainClick = useCallback((
+    suggestion: DomainSuggestion,
+    type: 'domain_suggestion' | 'alternative_tld'
+  ) => {
+    trackAffiliateClick({
+      type,
+      registrar: suggestion.registrar,
+      analyzedDomain: domain,
+      clickedDomain: suggestion.domain,
+      estimatedValue,
+      isPremium: suggestion.isPremium,
+    });
+  }, [domain, estimatedValue]);
 
   return (
     <div className="glass-card p-6 fade-in">
@@ -47,6 +72,7 @@ export function DomainRegistration({ domain, estimatedValue }: DomainRegistratio
               href={registrar.url}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={() => handleRegistrarClick(registrar.name)}
               className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-emerald-500/50 rounded-lg transition-all text-sm"
             >
               <span className="text-gray-300">{registrar.name}</span>
@@ -68,7 +94,11 @@ export function DomainRegistration({ domain, estimatedValue }: DomainRegistratio
         </h4>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           {domainData.alternativeTlds.slice(0, 6).map((suggestion) => (
-            <DomainCard key={suggestion.domain} suggestion={suggestion} />
+            <DomainCard
+              key={suggestion.domain}
+              suggestion={suggestion}
+              onClick={() => handleDomainClick(suggestion, 'alternative_tld')}
+            />
           ))}
         </div>
       </div>
@@ -83,7 +113,12 @@ export function DomainRegistration({ domain, estimatedValue }: DomainRegistratio
         </h4>
         <div className="grid grid-cols-2 gap-2">
           {domainData.suggestions.map((suggestion) => (
-            <DomainCard key={suggestion.domain} suggestion={suggestion} compact />
+            <DomainCard
+              key={suggestion.domain}
+              suggestion={suggestion}
+              compact
+              onClick={() => handleDomainClick(suggestion, 'domain_suggestion')}
+            />
           ))}
         </div>
       </div>
@@ -99,15 +134,18 @@ export function DomainRegistration({ domain, estimatedValue }: DomainRegistratio
 function DomainCard({
   suggestion,
   compact = false,
+  onClick,
 }: {
   suggestion: DomainSuggestion;
   compact?: boolean;
+  onClick?: () => void;
 }) {
   return (
     <a
       href={suggestion.affiliateUrl}
       target="_blank"
       rel="noopener noreferrer"
+      onClick={onClick}
       className={`
         group flex items-center justify-between
         bg-white/5 hover:bg-white/10 border border-white/10 hover:border-emerald-500/50
