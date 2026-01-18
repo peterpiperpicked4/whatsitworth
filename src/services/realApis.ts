@@ -3,6 +3,29 @@
  * All APIs used here are FREE (no API key required)
  */
 
+// Timeout wrapper for faster analysis (v2.4)
+const DEFAULT_TIMEOUT = 8000; // 8 seconds max per API call
+
+async function fetchWithTimeout(url: string, options: RequestInit = {}, timeout = DEFAULT_TIMEOUT): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    return response;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(`Request timed out after ${timeout}ms`);
+    }
+    throw error;
+  }
+}
+
 // CORS Proxies for APIs that don't support CORS
 const CORS_PROXIES = [
   'https://corsproxy.io/?',
@@ -10,16 +33,16 @@ const CORS_PROXIES = [
   'https://cors-anywhere.herokuapp.com/',
 ];
 
-// Try multiple proxies
-async function fetchWithCorsProxy(url: string): Promise<Response> {
+// Try multiple proxies with timeout
+async function fetchWithCorsProxy(url: string, timeout = 5000): Promise<Response> {
   for (const proxy of CORS_PROXIES) {
     try {
-      const response = await fetch(proxy + encodeURIComponent(url));
+      const response = await fetchWithTimeout(proxy + encodeURIComponent(url), {}, timeout);
       if (response.ok) {
         return response;
       }
     } catch (e) {
-      console.warn(`Proxy ${proxy} failed for ${url}`);
+      console.warn(`Proxy ${proxy} failed for ${url}:`, e instanceof Error ? e.message : 'Unknown error');
     }
   }
   throw new Error('All CORS proxies failed');
@@ -58,7 +81,7 @@ export async function getPageSpeedInsights(url: string): Promise<PageSpeedResult
 
       console.log(`PageSpeed API attempt ${attempt}/${maxRetries} for ${url}`);
 
-      const response = await fetch(apiUrl);
+      const response = await fetchWithTimeout(apiUrl, {}, 15000); // 15s for PageSpeed since it's critical
 
       if (response.status === 429) {
         // Rate limited - wait and retry

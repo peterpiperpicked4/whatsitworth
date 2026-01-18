@@ -344,6 +344,8 @@ export interface AnalysisProgress {
   stage: string;
   percent: number;
   currentTask: string;
+  completedSources: string[];
+  totalSources: number;
 }
 
 // ============================================

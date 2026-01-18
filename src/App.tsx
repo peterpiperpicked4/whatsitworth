@@ -47,7 +47,7 @@ function App() {
       // Add a minimum delay for UX (shows the nice loading animation)
       const [result] = await Promise.all([
         analyzeWebsite(url),
-        new Promise((resolve) => setTimeout(resolve, 3000)),
+        new Promise((resolve) => setTimeout(resolve, 2000)), // Reduced from 3s to 2s
       ]);
 
       setAnalysis(result);

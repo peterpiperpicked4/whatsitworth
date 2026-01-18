@@ -100,6 +100,46 @@ export function ResultsDashboard({ analysis, onReset }: ResultsDashboardProps) {
   const verdict = calculateVerdict();
   const trancoRank = analysis.ranking?.rank || null;
 
+  // Calculate value opportunity signal (undervalued/overvalued)
+  const calculateValueOpportunity = (): { signal: 'undervalued' | 'fair' | 'overvalued'; magnitude: number; reason: string } => {
+    const score = analysis.scores.overall;
+    const value = analysis.estimatedValue;
+
+    // Calculate expected value based on score
+    // Score 50 = ~$5K, Score 70 = ~$50K, Score 90 = ~$500K
+    const expectedValueForScore = Math.pow(10, 2 + (score / 25));
+
+    // Calculate ratio
+    const ratio = value / expectedValueForScore;
+
+    if (ratio < 0.5) {
+      // Value is less than half of expected - undervalued
+      const magnitude = Math.min(100, Math.round((1 - ratio) * 100));
+      return {
+        signal: 'undervalued',
+        magnitude,
+        reason: score >= 60 ? 'High quality metrics but lower market valuation' : 'Room for value growth with improvements'
+      };
+    } else if (ratio > 2) {
+      // Value is more than double expected - overvalued
+      const magnitude = Math.min(100, Math.round((ratio - 1) * 50));
+      return {
+        signal: 'overvalued',
+        magnitude,
+        reason: 'Premium valuation may reflect brand value or traffic not captured in metrics'
+      };
+    } else {
+      // Fair value range
+      return {
+        signal: 'fair',
+        magnitude: 0,
+        reason: 'Valuation aligns with quality metrics'
+      };
+    }
+  };
+
+  const valueOpportunity = calculateValueOpportunity();
+
   // Generate auto-narrative summary
   const generateNarrative = (): string => {
     const parts: string[] = [];
@@ -167,6 +207,97 @@ export function ResultsDashboard({ analysis, onReset }: ResultsDashboardProps) {
 
   const narrative = generateNarrative();
 
+  // CSV Export function
+  const exportToCSV = () => {
+    const rows = [
+      ['Website Valuation Report'],
+      ['Generated', new Date().toISOString()],
+      [''],
+      ['Domain', analysis.domain.domain],
+      ['Estimated Value', `$${analysis.estimatedValue.toLocaleString()}`],
+      ['Value Range', `$${analysis.valueRange.min.toLocaleString()} - $${analysis.valueRange.max.toLocaleString()}`],
+      ['Confidence', `${analysis.confidenceScore}%`],
+      ['Verdict', verdict],
+      [''],
+      ['SCORES'],
+      ['Overall Score', analysis.scores.overall],
+      ['Domain Score', analysis.scores.domain],
+      ['Performance Score', analysis.scores.performance],
+      ['Technical Score', analysis.scores.technical],
+      ['Security Score', analysis.scores.security],
+      ['SEO Score', analysis.scores.seo],
+      ['Content Score', analysis.scores.content],
+      ['Social Score', analysis.scores.social],
+      ['Monetization Score', analysis.scores.monetization],
+      [''],
+      ['VALUATION BREAKDOWN'],
+      ['Domain Intrinsic Value', `$${analysis.valuationBreakdown.domainIntrinsicValue.toLocaleString()}`],
+      ['Traffic Value', `$${analysis.valuationBreakdown.trafficValue.toLocaleString()}`],
+      ['Content Value', `$${analysis.valuationBreakdown.contentValue.toLocaleString()}`],
+      ['Technical Value', `$${analysis.valuationBreakdown.technicalValue.toLocaleString()}`],
+      ['Brand Value', `$${analysis.valuationBreakdown.brandValue.toLocaleString()}`],
+      ['Revenue Multiple', `$${analysis.valuationBreakdown.revenueMultiple.toLocaleString()}`],
+      [''],
+      ['DOMAIN DETAILS'],
+      ['TLD', analysis.domain.tld],
+      ['Age (Years)', analysis.domain.ageYears || 'Unknown'],
+      ['Archive Snapshots', analysis.domain.archiveSnapshots],
+      ['Keywords Found', analysis.domain.keywordsFound.join('; ') || 'None'],
+      [''],
+      ['TRAFFIC METRICS'],
+      ['Monthly Visitors', analysis.traffic.estimatedMonthlyVisitors.toLocaleString()],
+      ['Traffic Tier', analysis.traffic.trafficTier],
+      ['Pageviews', analysis.traffic.estimatedPageviews.toLocaleString()],
+      ['Bounce Rate', `${analysis.traffic.estimatedBounceRate}%`],
+      [''],
+      ['TECHNICAL'],
+      ['HTTPS', analysis.technical.hasHttps ? 'Yes' : 'No'],
+      ['Load Time (ms)', analysis.technical.loadTime],
+      ['Has Sitemap', analysis.seo.hasSitemap ? 'Yes' : 'No'],
+      ['Has Robots.txt', analysis.seo.hasRobotsTxt ? 'Yes' : 'No'],
+      ['Structured Data', analysis.seo.hasStructuredData ? 'Yes' : 'No'],
+      [''],
+      ['SEO'],
+      ['Title', `"${analysis.seo.title}"`],
+      ['Description', `"${analysis.seo.description}"`],
+      ['H1 Count', analysis.seo.h1Count],
+      ['H2 Count', analysis.seo.h2Count],
+      ['Image Count', analysis.seo.imageCount],
+      [''],
+      ['CONTENT'],
+      ['Word Count', analysis.content.wordCount],
+      ['Readability Grade', analysis.content.readabilityGrade],
+      ['Has Privacy Policy', analysis.content.hasPrivacyPolicy ? 'Yes' : 'No'],
+      ['Has Contact Info', analysis.content.hasContactInfo ? 'Yes' : 'No'],
+      [''],
+      ['MONETIZATION'],
+      ['Revenue Model', analysis.monetization.revenueModel],
+      ['Has Ads', analysis.monetization.hasAds ? 'Yes' : 'No'],
+      ['Has E-commerce', analysis.monetization.hasEcommerce ? 'Yes' : 'No'],
+      ['Est. Monthly Revenue', analysis.monetization.estimatedMonthlyRevenue.mid > 0 ? `$${analysis.monetization.estimatedMonthlyRevenue.mid.toLocaleString()}` : 'N/A'],
+      [''],
+      ['RECOMMENDATIONS'],
+      ...analysis.recommendations.map((rec, i) => [
+        `${i + 1}. ${rec.title}`,
+        rec.description,
+        `Impact: ${rec.impact}`,
+        `Potential: +$${rec.potentialValueIncrease.toLocaleString()}`
+      ]),
+      [''],
+      ['DATA SOURCES USED'],
+      ...analysis.dataSourcesUsed.map(source => [source]),
+    ];
+
+    const csvContent = rows.map(row => row.join(',')).join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const filename = `${analysis.domain.domain.replace(/\./g, '-')}-valuation-${new Date().toISOString().split('T')[0]}.csv`;
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+
   return (
     <div className="w-full max-w-6xl mx-auto space-y-6">
       {/* Header */}
@@ -194,7 +325,16 @@ export function ResultsDashboard({ analysis, onReset }: ResultsDashboardProps) {
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
             </svg>
-            Download PDF
+            PDF
+          </button>
+          <button
+            onClick={exportToCSV}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-medium transition-all shadow-lg shadow-emerald-500/25"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            CSV
           </button>
           <ShareButtons domain={analysis.domain.domain} value={analysis.estimatedValue} />
           <button onClick={onReset} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white transition-all">
@@ -215,6 +355,50 @@ export function ResultsDashboard({ analysis, onReset }: ResultsDashboardProps) {
         verdict={verdict}
         overallScore={analysis.scores.overall}
       />
+
+      {/* Value Opportunity Signal */}
+      {valueOpportunity.signal !== 'fair' && (
+        <div className={`glass-card p-4 fade-in flex items-center gap-4 ${
+          valueOpportunity.signal === 'undervalued'
+            ? 'border border-emerald-500/30 bg-emerald-500/5'
+            : 'border border-amber-500/30 bg-amber-500/5'
+        }`}>
+          <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+            valueOpportunity.signal === 'undervalued'
+              ? 'bg-emerald-500/20'
+              : 'bg-amber-500/20'
+          }`}>
+            {valueOpportunity.signal === 'undervalued' ? (
+              <svg className="w-6 h-6 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+              </svg>
+            ) : (
+              <svg className="w-6 h-6 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6" />
+              </svg>
+            )}
+          </div>
+          <div className="flex-1">
+            <div className="flex items-center gap-2">
+              <span className={`text-sm font-bold uppercase ${
+                valueOpportunity.signal === 'undervalued' ? 'text-emerald-400' : 'text-amber-400'
+              }`}>
+                {valueOpportunity.signal === 'undervalued' ? 'Potential Opportunity' : 'Premium Pricing'}
+              </span>
+              {valueOpportunity.magnitude > 0 && (
+                <span className={`text-xs px-2 py-0.5 rounded-full ${
+                  valueOpportunity.signal === 'undervalued'
+                    ? 'bg-emerald-500/20 text-emerald-400'
+                    : 'bg-amber-500/20 text-amber-400'
+                }`}>
+                  {valueOpportunity.magnitude}% {valueOpportunity.signal}
+                </span>
+              )}
+            </div>
+            <p className="text-sm text-gray-400 mt-1">{valueOpportunity.reason}</p>
+          </div>
+        </div>
+      )}
 
       {/* Auto-Generated Narrative Summary */}
       <div className="glass-card p-6 fade-in border-l-4 border-l-primary">

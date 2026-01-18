@@ -1201,6 +1201,43 @@ export async function analyzeWebsite(inputUrl: string): Promise<WebsiteAnalysis>
   const url = normalizeUrl(inputUrl);
   const domainName = extractDomain(url);
 
+  // ============================================
+  // DOMAIN VALIDATION (v2.3.1)
+  // ============================================
+
+  // Check for invalid characters in domain
+  const domainWithoutTld = domainName.split('.').slice(0, -1).join('.');
+  const invalidCharsRegex = /[^a-z0-9\-\.]/i;
+  if (invalidCharsRegex.test(domainName)) {
+    throw new Error(`Invalid domain format: "${domainName}" contains invalid characters. Domains can only contain letters, numbers, hyphens, and dots.`);
+  }
+
+  // Check for obviously fake/gibberish domains
+  const isGibberish = (str: string): boolean => {
+    // Remove TLD and check the main part
+    const mainPart = str.split('.')[0].toLowerCase();
+
+    // Too many consonants in a row (5+) suggests gibberish
+    if (/[bcdfghjklmnpqrstvwxyz]{5,}/i.test(mainPart)) return true;
+
+    // Too long without vowels
+    if (mainPart.length > 8 && !/[aeiou]/i.test(mainPart)) return true;
+
+    // Mostly random characters (high entropy)
+    const uniqueChars = new Set(mainPart).size;
+    if (mainPart.length > 10 && uniqueChars / mainPart.length > 0.8) return true;
+
+    // Very long domain names (20+) without real words are suspicious
+    if (mainPart.length > 20) return true;
+
+    return false;
+  };
+
+  // Apply gibberish check
+  if (isGibberish(domainName)) {
+    throw new Error(`Invalid domain: "${domainName}" appears to be randomly generated or gibberish. Please enter a valid domain name.`);
+  }
+
   const dataSourcesUsed: string[] = ['HTML Analysis'];
 
   // Fetch website content
@@ -1406,7 +1443,7 @@ export async function analyzeWebsite(inputUrl: string): Promise<WebsiteAnalysis>
   return {
     url,
     analyzedAt: new Date(),
-    analysisVersion: '2.2.0',
+    analysisVersion: '2.4.0',
     domain: domainAnalysis,
     performance: performanceAnalysis,
     technical: technicalAnalysis,
