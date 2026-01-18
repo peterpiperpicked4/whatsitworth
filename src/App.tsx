@@ -13,13 +13,35 @@ function App() {
   const [status, setStatus] = useState<AnalysisStatus>('idle');
   const [analysis, setAnalysis] = useState<WebsiteAnalysis | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [lastUrl, setLastUrl] = useState<string>('');
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showComparison, setShowComparison] = useState(false);
 
+  // Check if error indicates a dead/unregistered domain
+  const isDomainError = error && (
+    error.toLowerCase().includes('domain') ||
+    error.toLowerCase().includes('dns') ||
+    error.toLowerCase().includes('not found') ||
+    error.toLowerCase().includes('unreachable') ||
+    error.toLowerCase().includes('failed to fetch') ||
+    error.toLowerCase().includes('network')
+  );
+
+  // Extract just the domain name from the last URL
+  const getDomainFromUrl = (url: string): string => {
+    try {
+      const cleanUrl = url.replace(/^(https?:\/\/)?/, '').split('/')[0];
+      return cleanUrl;
+    } catch {
+      return url;
+    }
+  };
+
   const handleAnalyze = async (url: string) => {
     setStatus('analyzing');
     setError(null);
+    setLastUrl(url);
 
     try {
       // Add a minimum delay for UX (shows the nice loading animation)
@@ -163,18 +185,81 @@ function App() {
 
             {status === 'error' && (
               <div className="glass-card p-8 text-center max-w-lg mx-auto">
-                <div className="w-16 h-16 rounded-full bg-red-500/20 flex items-center justify-center mx-auto mb-4">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-red-500">
-                    <circle cx="12" cy="12" r="10"/>
-                    <line x1="15" y1="9" x2="9" y2="15"/>
-                    <line x1="9" y1="9" x2="15" y2="15"/>
-                  </svg>
-                </div>
-                <h3 className="text-xl font-semibold text-white mb-2">Analysis Failed</h3>
-                <p className="text-gray-400 mb-6">{error}</p>
-                <button onClick={handleReset} className="btn-primary">
-                  Try Again
-                </button>
+                {isDomainError ? (
+                  <>
+                    {/* Domain Not Found / Unregistered */}
+                    <div className="w-16 h-16 rounded-full bg-amber-500/20 flex items-center justify-center mx-auto mb-4">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-500">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="12" y1="8" x2="12" y2="12"/>
+                        <line x1="12" y1="16" x2="12.01" y2="16"/>
+                      </svg>
+                    </div>
+                    <h3 className="text-xl font-semibold text-white mb-2">Domain Appears Unavailable</h3>
+                    <p className="text-gray-400 mb-4">
+                      <span className="text-amber-400 font-mono">{getDomainFromUrl(lastUrl)}</span> couldn't be reached.
+                      It may be unregistered or temporarily unavailable.
+                    </p>
+
+                    {/* Opportunity CTA */}
+                    <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 mb-6">
+                      <p className="text-emerald-400 text-sm font-medium mb-2">
+                        This could be an opportunity!
+                      </p>
+                      <p className="text-gray-400 text-xs">
+                        If this domain is available, you could register it.
+                      </p>
+                    </div>
+
+                    {/* Registration Links */}
+                    <div className="flex flex-wrap justify-center gap-2 mb-6">
+                      <a
+                        href={`https://www.namecheap.com/domains/registration/results/?domain=${getDomainFromUrl(lastUrl)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-4 py-2 rounded-lg bg-orange-500/20 hover:bg-orange-500/30 border border-orange-500/30 text-orange-400 text-sm transition-all"
+                      >
+                        Check on Namecheap
+                      </a>
+                      <a
+                        href={`https://www.godaddy.com/domainsearch/find?domainToCheck=${getDomainFromUrl(lastUrl)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-4 py-2 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 text-blue-400 text-sm transition-all"
+                      >
+                        Check on GoDaddy
+                      </a>
+                      <a
+                        href={`https://porkbun.com/checkout/search?q=${getDomainFromUrl(lastUrl)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-4 py-2 rounded-lg bg-pink-500/20 hover:bg-pink-500/30 border border-pink-500/30 text-pink-400 text-sm transition-all"
+                      >
+                        Check on Porkbun
+                      </a>
+                    </div>
+
+                    <button onClick={handleReset} className="btn-primary">
+                      Try Another Domain
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    {/* Generic Error */}
+                    <div className="w-16 h-16 rounded-full bg-red-500/20 flex items-center justify-center mx-auto mb-4">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-red-500">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="15" y1="9" x2="9" y2="15"/>
+                        <line x1="9" y1="9" x2="15" y2="15"/>
+                      </svg>
+                    </div>
+                    <h3 className="text-xl font-semibold text-white mb-2">Analysis Failed</h3>
+                    <p className="text-gray-400 mb-6">{error}</p>
+                    <button onClick={handleReset} className="btn-primary">
+                      Try Again
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>

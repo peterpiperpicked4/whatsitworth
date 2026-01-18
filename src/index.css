@@ -197,3 +197,101 @@ body {
 .spinner {
   animation: spin 1s linear infinite;
 }
+
+/* Mobile Responsive Fixes */
+@media (max-width: 640px) {
+  /* Header title */
+  h1 {
+    font-size: 2rem !important;
+    line-height: 1.2;
+  }
+
+  /* Glass cards - less padding on mobile */
+  .glass-card {
+    padding: 1rem;
+    border-radius: 16px;
+  }
+
+  /* Input - full width, thumb-friendly */
+  .url-input {
+    font-size: 1rem;
+    padding: 1rem 1rem 1rem 3rem;
+  }
+
+  /* Button - full width on mobile */
+  .btn-primary {
+    width: 100%;
+    padding: 1rem 1.5rem;
+    font-size: 1rem;
+  }
+
+  /* Value display - smaller on mobile */
+  .text-6xl, .text-7xl {
+    font-size: 2.5rem !important;
+  }
+
+  /* Grid fixes */
+  .grid {
+    gap: 0.75rem;
+  }
+
+  /* Feature cards - stack properly */
+  .grid.sm\:grid-cols-2.lg\:grid-cols-4 {
+    grid-template-columns: 1fr;
+  }
+
+  /* Header buttons - stack on mobile */
+  .flex.items-center.gap-3 {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  /* Smaller padding throughout */
+  .p-6 { padding: 1rem; }
+  .p-8 { padding: 1.25rem; }
+  .px-4 { padding-left: 0.75rem; padding-right: 0.75rem; }
+  .py-8 { padding-top: 1.5rem; padding-bottom: 1.5rem; }
+
+  /* Footer buttons */
+  footer .flex {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+}
+
+@media (max-width: 400px) {
+  /* Extra small screens */
+  h1 {
+    font-size: 1.5rem !important;
+  }
+
+  .text-6xl, .text-7xl, .text-5xl {
+    font-size: 1.75rem !important;
+  }
+
+  .glass-card {
+    padding: 0.75rem;
+    border-radius: 12px;
+  }
+
+  .url-input {
+    font-size: 0.9rem;
+    padding: 0.875rem 0.75rem 0.875rem 2.5rem;
+  }
+
+  .btn-primary {
+    padding: 0.875rem 1rem;
+    font-size: 0.9rem;
+    border-radius: 12px;
+  }
+
+  /* Hide less important elements */
+  .text-xs {
+    font-size: 0.65rem;
+  }
+
+  /* Smaller gaps */
+  .gap-4 { gap: 0.5rem; }
+  .gap-6 { gap: 0.75rem; }
+  .space-y-6 > * + * { margin-top: 0.75rem; }
+}

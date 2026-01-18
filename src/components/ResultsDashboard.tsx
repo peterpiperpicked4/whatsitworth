@@ -81,6 +81,92 @@ export function ResultsDashboard({ analysis, onReset }: ResultsDashboardProps) {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
+  // Calculate verdict based on overall score and value
+  const calculateVerdict = (): 'STRONG BUY' | 'BUY' | 'HOLD' | 'PASS' => {
+    const score = analysis.scores.overall;
+    const value = analysis.estimatedValue;
+
+    // Enterprise sites don't get a verdict
+    if (analysis.ranking?.rank && analysis.ranking.rank <= 100) {
+      return 'HOLD'; // Won't be shown anyway
+    }
+
+    if (score >= 70 && value >= 100000) return 'STRONG BUY';
+    if (score >= 60 && value >= 50000) return 'BUY';
+    if (score >= 50) return 'HOLD';
+    return 'PASS';
+  };
+
+  const verdict = calculateVerdict();
+  const trancoRank = analysis.ranking?.rank || null;
+
+  // Generate auto-narrative summary
+  const generateNarrative = (): string => {
+    const parts: string[] = [];
+    const score = analysis.scores.overall;
+    const value = analysis.estimatedValue;
+    const domain = analysis.domain.domain;
+
+    // Opening statement based on verdict
+    if (verdict === 'STRONG BUY') {
+      parts.push(`${domain} presents a compelling acquisition opportunity.`);
+    } else if (verdict === 'BUY') {
+      parts.push(`${domain} shows solid fundamentals worth considering.`);
+    } else if (verdict === 'HOLD') {
+      parts.push(`${domain} has mixed signals that warrant careful evaluation.`);
+    } else {
+      parts.push(`${domain} may need significant improvements to justify its current state.`);
+    }
+
+    // Key strengths
+    const strengths: string[] = [];
+    if (analysis.scores.domain >= 70) strengths.push('premium domain quality');
+    if (analysis.scores.seo >= 70) strengths.push('strong SEO foundation');
+    if (analysis.scores.performance >= 70) strengths.push('excellent performance');
+    if (analysis.scores.security >= 70) strengths.push('robust security');
+    if (analysis.traffic.trafficTier === 'high' || analysis.traffic.trafficTier === 'very-high') {
+      strengths.push('significant traffic');
+    }
+    if (analysis.domain.ageYears >= 5) strengths.push(`${analysis.domain.ageYears}-year track record`);
+
+    if (strengths.length > 0) {
+      parts.push(`Key strengths include ${strengths.slice(0, 3).join(', ')}.`);
+    }
+
+    // Key weaknesses
+    const weaknesses: string[] = [];
+    if (analysis.scores.seo < 50) weaknesses.push('SEO optimization');
+    if (analysis.scores.performance < 50) weaknesses.push('site performance');
+    if (analysis.scores.security < 50) weaknesses.push('security measures');
+    if (analysis.scores.content < 50) weaknesses.push('content depth');
+    if (!analysis.technical.hasHttps) weaknesses.push('HTTPS implementation');
+
+    if (weaknesses.length > 0) {
+      parts.push(`Areas for improvement: ${weaknesses.slice(0, 2).join(' and ')}.`);
+    }
+
+    // Valuation context
+    if (value >= 1000000) {
+      parts.push(`The ${formatCurrency(value)} valuation reflects its established market presence.`);
+    } else if (value >= 100000) {
+      parts.push(`Valued at ${formatCurrency(value)}, there's room for growth with the right strategy.`);
+    } else if (value >= 10000) {
+      parts.push(`At ${formatCurrency(value)}, this represents a modest investment opportunity.`);
+    } else {
+      parts.push(`The ${formatCurrency(value)} valuation suggests early-stage or undeveloped potential.`);
+    }
+
+    // Recommendation count
+    const criticalRecs = analysis.recommendations.filter(r => r.impact === 'critical' || r.impact === 'high').length;
+    if (criticalRecs > 0) {
+      parts.push(`${criticalRecs} high-impact improvements could significantly boost value.`);
+    }
+
+    return parts.join(' ');
+  };
+
+  const narrative = generateNarrative();
+
   return (
     <div className="w-full max-w-6xl mx-auto space-y-6">
       {/* Header */}
@@ -121,7 +207,36 @@ export function ResultsDashboard({ analysis, onReset }: ResultsDashboardProps) {
       </div>
 
       {/* Main Value Display */}
-      <ValueDisplay value={analysis.estimatedValue} min={analysis.valueRange.min} max={analysis.valueRange.max} />
+      <ValueDisplay
+        value={analysis.estimatedValue}
+        min={analysis.valueRange.min}
+        max={analysis.valueRange.max}
+        trancoRank={trancoRank}
+        verdict={verdict}
+        overallScore={analysis.scores.overall}
+      />
+
+      {/* Auto-Generated Narrative Summary */}
+      <div className="glass-card p-6 fade-in border-l-4 border-l-primary">
+        <div className="flex items-start gap-3">
+          <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center flex-shrink-0 mt-1">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+              <line x1="16" y1="13" x2="8" y2="13"/>
+              <line x1="16" y1="17" x2="8" y2="17"/>
+              <polyline points="10 9 9 9 8 9"/>
+            </svg>
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-white mb-2 flex items-center gap-2">
+              Executive Summary
+              <span className="text-xs px-2 py-0.5 rounded-full bg-primary/20 text-primary font-normal">AI Generated</span>
+            </h3>
+            <p className="text-gray-300 text-sm leading-relaxed">{narrative}</p>
+          </div>
+        </div>
+      </div>
 
       {/* Valuation Breakdown */}
       <div className="glass-card p-6 fade-in fade-in-delay-1">
